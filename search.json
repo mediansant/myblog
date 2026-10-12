@@ -7,6 +7,13 @@
     "text": "I build and evaluate LLM systems. This blog collects write-ups of projects, with an emphasis on measuring whether the output is actually right."
   },
   {
+    "objectID": "index.html",
+    "href": "index.html",
+    "title": "Santosh Kumar Panda",
+    "section": "",
+    "text": "Getting JSON out of contracts is easy. Proving it’s right is the project.\n\n\n\nDuckDB\n\nevaluation\n\nLLM\n\nstructured-output\n\n\n\nAn LLM pipeline for legal contracts, scored field by field against 510 expert-labelled agreements.\n\n\n\n\n\nOct 12, 2026\n\n\nSantosh Kumar Panda\n\n\n\n\n\nNo matching items"
+  },
+  {
     "objectID": "posts/2026-10-12-getting-json-out-of-contracts.html",
     "href": "posts/2026-10-12-getting-json-out-of-contracts.html",
     "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
@@ -40,82 +47,5 @@
     "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
     "section": "Conclusion",
     "text": "Conclusion\nGetting JSON out of an LLM is a solved developer commodity. Proving tha"
-  },
-  {
-    "objectID": "index.html",
-    "href": "index.html",
-    "title": "Santosh Kumar Panda",
-    "section": "",
-    "text": "Getting JSON out of contracts is easy. Proving it’s right is the project.\n\n\n\n\n\n\nDuckDB\n\nevaluation\n\nLLM\n\nstructured-output\n\n\n\nAn LLM pipeline for legal contracts, scored field by field against 510 expert-labelled agreements.\n\n\n\n\n\nOct 12, 2026\n\n\nSantosh Kumar Panda\n\n\n\n\n\n\n\n\n\n\n\n\nGetting JSON out of contracts is easy. Proving it’s right is the project.\n\n\nAn LLM pipeline for legal contracts, scored field by field against CUAD expert labels\n\n\n\nLLM\n\nevaluation\n\nstructured-output\n\nDuckDB\n\n\n\nPDF to Markdown to typed record to DuckDB, with precision and recall per field. What the numbers said, and why the honest ones are the interesting ones.\n\n\n\n\n\nOct 12, 2026\n\n\nSantosh Kumar Panda\n\n\n\n\n\nNo matching items"
-  },
-  {
-    "objectID": "posts/doc-intel-contract-extraction/index.html",
-    "href": "posts/doc-intel-contract-extraction/index.html",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "",
-    "text": "TL;DR. doc-intel turns contract PDFs into typed records (governing law, parties, dates, key clauses) and scores every field against the CUAD expert labels. Governing law and agreement date land at about 0.9+. Liability caps and non-competes are precise but badly under-recalled, which is exactly the kind of thing you only learn by measuring. Code: github.com/mediansant/doc-intel."
-  },
-  {
-    "objectID": "posts/doc-intel-contract-extraction/index.html#the-problem-is-not-extraction",
-    "href": "posts/doc-intel-contract-extraction/index.html#the-problem-is-not-extraction",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "The problem is not extraction",
-    "text": "The problem is not extraction\nAnyone can ask an LLM for JSON. The hard question is the one that comes after: is the JSON right?\nSo this project is built around that question rather than around the extraction itself:\n\n\n\n\n\n\n\nPrinciple\nHow it shows up\n\n\n\n\nTyped output\nEvery field lives in a Pydantic schema, and each value carries a verbatim evidence quote a reviewer can check against the contract.\n\n\nGround truth\nResults are scored against CUAD expert labels (510 labelled contracts available, 20 scored so far), per field, as precision and recall.\n\n\nReproducible runs\nEach run is stored with its model, prompt hash and schema version, so “did prompt v2 beat v1?” is a SQL query, not a guess.\n\n\nCheap to change\nExtraction is exposed as an API with caching. The eval harness runs offline against saved outputs."
-  },
-  {
-    "objectID": "posts/doc-intel-contract-extraction/index.html#what-gets-extracted",
-    "href": "posts/doc-intel-contract-extraction/index.html#what-gets-extracted",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "What gets extracted",
-    "text": "What gets extracted\n\n\n\n\n\n\n\n\nField\nType\nMeaning\n\n\n\n\ngoverning_law\ntext\nJurisdiction as a bare place name, e.g. Delaware\n\n\nparties\nlist\nContracting entities named in the preamble\n\n\nagreement_date\nISO date\nDate the contract was entered into\n\n\nrenewal_term\nfree text\nRenewal / extension provisions\n\n\ncap_on_liability\nbool\nExplicit monetary cap on liability\n\n\nnon_compete\nbool\nNon-compete clause present"
-  },
-  {
-    "objectID": "posts/doc-intel-contract-extraction/index.html#the-pipeline",
-    "href": "posts/doc-intel-contract-extraction/index.html#the-pipeline",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "The pipeline",
-    "text": "The pipeline\n\n\n\n\n\nflowchart TD\n    A[(\"CUAD PDFs +&lt;br/&gt;master_clauses.csv\")] --&gt;|\"parse.py · Docling\"| B[\"Markdown\"]\n    B --&gt;|\"extract.py · OpenAI structured output\"| C[\"ContractRecord&lt;br/&gt;values + evidence\"]\n    C --&gt;|\"backfill.py\"| D[(\"DuckDB&lt;br/&gt;documents · runs · extractions\")]\n    D --&gt;|\"score.py + matchers.py\"| E[\"Precision / recall&lt;br/&gt;per field + failure list\"]\n    A -.-&gt;|\"ground-truth labels\"| E\n\n\n\n\n\n\nDuckDB holds the whole story, and it is append-only, so no run ever overwrites another:\n\n\n\n\n\n\n\nTable\nPurpose\n\n\n\n\ndocuments\nOne row per PDF, keyed by the SHA-256 of its bytes\n\n\nruns\nOne row per (model, prompt hash, schema version)\n\n\nextractions\nThe full record as JSON, plus tokens and latency\n\n\neval_outcomes\nOne TP / FP / FN / TN row per field per document per run\n\n\ncontract_records\nA view that types the JSON into columns for SQL analytics"
-  },
-  {
-    "objectID": "posts/doc-intel-contract-extraction/index.html#serving-it-post-extract",
-    "href": "posts/doc-intel-contract-extraction/index.html#serving-it-post-extract",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "Serving it: POST /extract",
-    "text": "Serving it: POST /extract\nThe same extraction is available as a FastAPI service. Results are cached by PDF hash + model + prompt + schema, so uploading the same file twice only costs one model call.\n\n\n\n\n\nsequenceDiagram\n    autonumber\n    actor Client\n    participant API as FastAPI\n    participant DB as DuckDB\n    participant Doc as Docling\n    participant LLM as OpenAI\n\n    Client-&gt;&gt;API: POST /extract (PDF)\n    API-&gt;&gt;API: doc_id = sha256(bytes)\n    API-&gt;&gt;DB: already extracted?\n    alt cache hit\n        DB--&gt;&gt;API: stored record\n        API--&gt;&gt;Client: 200 (cached: true)\n    else cache miss\n        API-&gt;&gt;Doc: PDF to Markdown\n        API-&gt;&gt;LLM: Markdown + schema\n        LLM--&gt;&gt;API: ContractRecord\n        API-&gt;&gt;DB: insert document + extraction\n        API--&gt;&gt;Client: 200 (cached: false)\n    end\n\n\n\n\n\n\nFailure modes are explicit: 413 over 50 MB, 415 not a PDF, 422 unparseable or no text, 502 model error. A 502 is deliberately not cached, so a retry works."
-  },
-  {
-    "objectID": "posts/doc-intel-contract-extraction/index.html#how-scoring-works",
-    "href": "posts/doc-intel-contract-extraction/index.html#how-scoring-works",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "How scoring works",
-    "text": "How scoring works\nComparing an LLM’s answer to a human label is where most evals quietly go wrong. Each field goes through three steps:\n\nNormalise both sides. State of Delaware and Delaware match. England and Wales becomes {england, wales}. Party aliases like (\"Chase\") are dropped.\nDecide absence with one rule for every field type (None, False, empty, NaN).\nClassify as TP / FP / FN / TN. A wrong value counts as both a false positive and a false negative.\n\nTwo guard rails I’d keep in any eval harness: the scorer asserts that outcomes cover every scored contract, and it lists skipped files instead of hiding them. Partial dates like 03/[]/1999 never match an invented full date."
-  },
-  {
-    "objectID": "posts/doc-intel-contract-extraction/index.html#results",
-    "href": "posts/doc-intel-contract-extraction/index.html#results",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "Results",
-    "text": "Results\nFirst run: gpt-4o-mini on a 20-contract sample.\n\ndata = [\n  {field: \"agreement_date\", metric: \"Precision\", value: 0.90},\n  {field: \"agreement_date\", metric: \"Recall\", value: 0.95},\n  {field: \"governing_law\", metric: \"Precision\", value: 0.95},\n  {field: \"governing_law\", metric: \"Recall\", value: 0.95},\n  {field: \"cap_on_liability\", metric: \"Precision\", value: 1.00},\n  {field: \"cap_on_liability\", metric: \"Recall\", value: 0.22},\n  {field: \"non_compete\", metric: \"Precision\", value: 0.80},\n  {field: \"non_compete\", metric: \"Recall\", value: 0.33},\n  {field: \"parties (per party)\", metric: \"Precision\", value: 0.98},\n  {field: \"parties (per party)\", metric: \"Recall\", value: 0.48},\n  {field: \"renewal_term\", metric: \"Precision\", value: 0.08},\n  {field: \"renewal_term\", metric: \"Recall\", value: 0.09}\n]\nPlot.plot({\n  marginLeft: 130,\n  x: {domain: [0, 1], grid: true, label: \"score\"},\n  y: {label: null},\n  fy: {label: null, domain: [...new Set(data.map(d =&gt; d.field))]},\n  color: {legend: true, domain: [\"Precision\", \"Recall\"], range: [\"#1f6feb\", \"#f0883e\"]},\n  marks: [\n    Plot.barX(data, {x: \"value\", fy: \"field\", y: \"metric\", fill: \"metric\", tip: true}),\n    Plot.text(data, {x: \"value\", fy: \"field\", y: \"metric\", text: d =&gt; d.value.toFixed(2), dx: 14, fontSize: 10}),\n    Plot.ruleX([0])\n  ]\n})\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nField\nPrecision\nRecall\n\n\n\n\nagreement_date\n0.90\n0.95\n\n\ngoverning_law\n0.95\n0.95\n\n\ncap_on_liability\n1.00\n0.22\n\n\nnon_compete\n0.80\n0.33\n\n\nparties (per party)\n0.98\n0.48\n\n\nrenewal_term\n0.08\n0.09\n\n\n\n\n\n\n\n\n\nWarning\n\n\n\nTwenty contracts is a small sample. Treat these numbers as directional, not as a benchmark."
-  },
-  {
-    "objectID": "posts/doc-intel-contract-extraction/index.html#what-the-numbers-actually-say",
-    "href": "posts/doc-intel-contract-extraction/index.html#what-the-numbers-actually-say",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "What the numbers actually say",
-    "text": "What the numbers actually say\nEasy, well-bounded fields work. Governing law and agreement date sit at 0.9+ on both axes. They have one canonical answer and a predictable place in the document.\nThe boolean fields are precise but timid. A precision of 1.00 with recall of 0.22 on liability caps means: when the model says “yes”, it’s right, but it says “yes” far too rarely. That is my own prompt’s fault. It tells the model to answer False unless a clause is explicit, so it misses most caps and non-competes. Nothing in a single accuracy number would have shown this. Splitting into precision and recall did.\nParties are a labelling mismatch as much as a model problem. CUAD labels aliases and roles as separate spans, while the model returns one name per party, so recall tops out near 0.48.\nrenewal_term fails because it is free text. Matching loose prose to loose prose scores poorly whichever side is wrong. The fix is a better schema, not a better model."
-  },
-  {
-    "objectID": "posts/doc-intel-contract-extraction/index.html#whats-next",
-    "href": "posts/doc-intel-contract-extraction/index.html#whats-next",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "What’s next",
-    "text": "What’s next\n\nrun_v2: relax the boolean prompt and re-score. Because runs are keyed by prompt hash, the comparison is one SQL query.\nStructured renewal terms: auto-renews, term length, notice period.\nChunking for very long contracts, which are currently sent whole.\nModel comparison: the harness already keys runs by model, so swapping one in is cheap."
-  },
-  {
-    "objectID": "posts/doc-intel-contract-extraction/index.html#try-it",
-    "href": "posts/doc-intel-contract-extraction/index.html#try-it",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "Try it",
-    "text": "Try it\nuv sync\necho \"OPENAI_API_KEY=sk-...\" &gt; .env\n\nuv run python -m doc_intel.run_extraction     # extract the 20-contract sample\nuv run python -m doc_intel.backfill run_v1    # load into DuckDB\nuv run python -m doc_intel.score run_v1       # precision / recall + failures\nuv run pytest evals                           # 31 offline tests, no API cost\nThe tests cover the API with Docling, the model and DuckDB mocked (success, cache hit, 413/415/422/502) and the matchers using values observed in run_v1.\n\nSource and full README: mediansant/doc-intel."
   }
 ]
