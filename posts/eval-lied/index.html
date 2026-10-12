@@ -1,0 +1,1303 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.10.19">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Santosh Kumar Panda">
+<meta name="dcterms.date" content="2026-10-20">
+<meta name="description" content="What building an LLM contract-extraction pipeline taught me about evaluation: ten ways my eval lied, and why the model was rarely the problem.">
+
+<title>My scorer gave a perfect extractor 0 out of 6 – Santosh Kumar Panda</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../../">
+<script src="../../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../../site_libs/quarto-html/popper.min.js"></script>
+<script src="../../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../../site_libs/quarto-html/quarto-syntax-highlighting-8c1a86ae588bd170d872b7970179cd19.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../../site_libs/quarto-html/quarto-syntax-highlighting-dark-5bae3474ca31e1fa5ee9bc1f17714303.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<link href="../../site_libs/quarto-html/quarto-syntax-highlighting-8c1a86ae588bd170d872b7970179cd19.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
+<script src="../../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../../site_libs/bootstrap/bootstrap-0a0fbeb2470214d72197066b1c120c54.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../../site_libs/bootstrap/bootstrap-dark-78996a301623f2ec62713f3a36ff7d9b.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="dark">
+<link href="../../site_libs/bootstrap/bootstrap-0a0fbeb2470214d72197066b1c120c54.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "navbar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "end",
+  "type": "overlay",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+<style>html{ scroll-behavior: smooth; }</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&amp;family=JetBrains+Mono:wght@400;500&amp;family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&amp;display=swap">
+
+
+<link rel="stylesheet" href="../../styles.css">
+<meta property="og:title" content="My scorer gave a perfect extractor 0 out of 6 – Santosh Kumar Panda">
+<meta property="og:description" content="What building an LLM contract-extraction pipeline taught me about evaluation: ten ways my eval lied, and why the model was rarely the problem.">
+<meta property="og:image" content="https://mediansant.github.io/myblog/posts/eval-lied/card.png">
+<meta property="og:site_name" content="Santosh Kumar Panda">
+<meta property="og:image:height" content="630">
+<meta property="og:image:width" content="1200">
+<meta name="twitter:title" content="My scorer gave a perfect extractor 0 out of 6 – Santosh Kumar Panda">
+<meta name="twitter:description" content="What building an LLM contract-extraction pipeline taught me about evaluation: ten ways my eval lied, and why the model was rarely the problem.">
+<meta name="twitter:image" content="https://mediansant.github.io/myblog/posts/eval-lied/card.png">
+<meta name="twitter:image-height" content="630">
+<meta name="twitter:image-width" content="1200">
+<meta name="twitter:card" content="summary_large_image">
+</head>
+
+<body class="nav-fixed quarto-light"><script id="quarto-html-before-body" type="application/javascript">
+    const toggleBodyColorMode = (bsSheetEl) => {
+      const mode = bsSheetEl.getAttribute("data-mode");
+      const bodyEl = window.document.querySelector("body");
+      if (mode === "dark") {
+        bodyEl.classList.add("quarto-dark");
+        bodyEl.classList.remove("quarto-light");
+      } else {
+        bodyEl.classList.add("quarto-light");
+        bodyEl.classList.remove("quarto-dark");
+      }
+    }
+    const toggleBodyColorPrimary = () => {
+      const bsSheetEl = window.document.querySelector("link#quarto-bootstrap:not([rel=disabled-stylesheet])");
+      if (bsSheetEl) {
+        toggleBodyColorMode(bsSheetEl);
+      }
+    }
+    const setColorSchemeToggle = (alternate) => {
+      const toggles = window.document.querySelectorAll('.quarto-color-scheme-toggle');
+      for (let i=0; i < toggles.length; i++) {
+        const toggle = toggles[i];
+        if (toggle) {
+          if (alternate) {
+            toggle.classList.add("alternate");
+          } else {
+            toggle.classList.remove("alternate");
+          }
+        }
+      }
+    };
+    const toggleColorMode = (alternate) => {
+      // Switch the stylesheets
+      const primaryStylesheets = window.document.querySelectorAll('link.quarto-color-scheme:not(.quarto-color-alternate)');
+      const alternateStylesheets = window.document.querySelectorAll('link.quarto-color-scheme.quarto-color-alternate');
+      manageTransitions('#quarto-margin-sidebar .nav-link', false);
+      if (alternate) {
+        // note: dark is layered on light, we don't disable primary!
+        enableStylesheet(alternateStylesheets);
+        for (const sheetNode of alternateStylesheets) {
+          if (sheetNode.id === "quarto-bootstrap") {
+            toggleBodyColorMode(sheetNode);
+          }
+        }
+      } else {
+        disableStylesheet(alternateStylesheets);
+        enableStylesheet(primaryStylesheets)
+        toggleBodyColorPrimary();
+      }
+      manageTransitions('#quarto-margin-sidebar .nav-link', true);
+      // Switch the toggles
+      setColorSchemeToggle(alternate)
+      // Hack to workaround the fact that safari doesn't
+      // properly recolor the scrollbar when toggling (#1455)
+      if (navigator.userAgent.indexOf('Safari') > 0 && navigator.userAgent.indexOf('Chrome') == -1) {
+        manageTransitions("body", false);
+        window.scrollTo(0, 1);
+        setTimeout(() => {
+          window.scrollTo(0, 0);
+          manageTransitions("body", true);
+        }, 40);
+      }
+    }
+    const disableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        stylesheet.rel = 'disabled-stylesheet';
+      }
+    }
+    const enableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        if(stylesheet.rel !== 'stylesheet') { // for Chrome, which will still FOUC without this check
+          stylesheet.rel = 'stylesheet';
+        }
+      }
+    }
+    const manageTransitions = (selector, allowTransitions) => {
+      const els = window.document.querySelectorAll(selector);
+      for (let i=0; i < els.length; i++) {
+        const el = els[i];
+        if (allowTransitions) {
+          el.classList.remove('notransition');
+        } else {
+          el.classList.add('notransition');
+        }
+      }
+    }
+    const isFileUrl = () => {
+      return window.location.protocol === 'file:';
+    }
+    const hasAlternateSentinel = () => {
+      let styleSentinel = getColorSchemeSentinel();
+      if (styleSentinel !== null) {
+        return styleSentinel === "alternate";
+      } else {
+        return false;
+      }
+    }
+    const setStyleSentinel = (alternate) => {
+      const value = alternate ? "alternate" : "default";
+      if (!isFileUrl()) {
+        window.localStorage.setItem("quarto-color-scheme", value);
+      } else {
+        localAlternateSentinel = value;
+      }
+    }
+    const getColorSchemeSentinel = () => {
+      if (!isFileUrl()) {
+        const storageValue = window.localStorage.getItem("quarto-color-scheme");
+        return storageValue != null ? storageValue : localAlternateSentinel;
+      } else {
+        return localAlternateSentinel;
+      }
+    }
+    const toggleGiscusIfUsed = (isAlternate, darkModeDefault) => {
+      const baseTheme = document.querySelector('#giscus-base-theme')?.value ?? 'light';
+      const alternateTheme = document.querySelector('#giscus-alt-theme')?.value ?? 'dark';
+      let newTheme = '';
+      if(authorPrefersDark) {
+        newTheme = isAlternate ? baseTheme : alternateTheme;
+      } else {
+        newTheme = isAlternate ? alternateTheme : baseTheme;
+      }
+      const changeGiscusTheme = () => {
+        // From: https://github.com/giscus/giscus/issues/336
+        const sendMessage = (message) => {
+          const iframe = document.querySelector('iframe.giscus-frame');
+          if (!iframe) return;
+          iframe.contentWindow.postMessage({ giscus: message }, 'https://giscus.app');
+        }
+        sendMessage({
+          setConfig: {
+            theme: newTheme
+          }
+        });
+      }
+      const isGiscussLoaded = window.document.querySelector('iframe.giscus-frame') !== null;
+      if (isGiscussLoaded) {
+        changeGiscusTheme();
+      }
+    };
+    const authorPrefersDark = false;
+    const darkModeDefault = authorPrefersDark;
+      document.querySelector('link#quarto-text-highlighting-styles.quarto-color-scheme-extra').rel = 'disabled-stylesheet';
+      document.querySelector('link#quarto-bootstrap.quarto-color-scheme-extra').rel = 'disabled-stylesheet';
+    let localAlternateSentinel = darkModeDefault ? 'alternate' : 'default';
+    // Dark / light mode switch
+    window.quartoToggleColorScheme = () => {
+      // Read the current dark / light value
+      let toAlternate = !hasAlternateSentinel();
+      toggleColorMode(toAlternate);
+      setStyleSentinel(toAlternate);
+      toggleGiscusIfUsed(toAlternate, darkModeDefault);
+      window.dispatchEvent(new Event('resize'));
+    };
+    // Switch to dark mode if need be
+    if (hasAlternateSentinel()) {
+      toggleColorMode(true);
+    } else {
+      toggleColorMode(false);
+    }
+  </script>
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+    <nav class="navbar navbar-expand-lg " data-bs-theme="dark">
+      <div class="navbar-container container-fluid">
+      <div class="navbar-brand-container mx-auto">
+    <a class="navbar-brand" href="../../index.html">
+    <span class="navbar-title">Santosh Kumar Panda</span>
+    </a>
+  </div>
+            <div id="quarto-search" class="" title="Search"></div>
+          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" role="menu" aria-expanded="false" aria-label="Toggle navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+  <span class="navbar-toggler-icon"></span>
+</button>
+          <div class="collapse navbar-collapse" id="navbarCollapse">
+            <ul class="navbar-nav navbar-nav-scroll ms-auto">
+  <li class="nav-item">
+    <a class="nav-link" href="../../about.html"> 
+<span class="menu-text">About</span></a>
+  </li>  
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://github.com/mediansant"> <i class="bi bi-github" role="img" aria-label="GitHub">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://www.linkedin.com/in/santosh015"> <i class="bi bi-linkedin" role="img" aria-label="LinkedIn">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+  <li class="nav-item compact">
+    <a class="nav-link" href="../../index.xml"> <i class="bi bi-rss" role="img" aria-label="RSS feed">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+</ul>
+          </div> <!-- /navcollapse -->
+            <div class="quarto-navbar-tools">
+  <a href="" class="quarto-color-scheme-toggle quarto-navigation-tool  px-1" onclick="window.quartoToggleColorScheme(); return false;" title="Toggle dark mode"><i class="bi"></i></a>
+</div>
+      </div> <!-- /container-fluid -->
+    </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article page-navbar">
+<!-- sidebar -->
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">On this page</h2>
+   
+  <ul>
+  <li><a href="#the-setup" id="toc-the-setup" class="nav-link active" data-scroll-target="#the-setup">The setup</a></li>
+  <li><a href="#ten-ways-my-eval-lied" id="toc-ten-ways-my-eval-lied" class="nav-link" data-scroll-target="#ten-ways-my-eval-lied">Ten ways my eval lied</a></li>
+  <li><a href="#what-i-measure-now" id="toc-what-i-measure-now" class="nav-link" data-scroll-target="#what-i-measure-now">What I measure now</a></li>
+  <li><a href="#the-real-baseline" id="toc-the-real-baseline" class="nav-link" data-scroll-target="#the-real-baseline">The real baseline</a></li>
+  <li><a href="#explore-every-failure" id="toc-explore-every-failure" class="nav-link" data-scroll-target="#explore-every-failure">Explore every failure</a></li>
+  <li><a href="#blame-the-model-last" id="toc-blame-the-model-last" class="nav-link" data-scroll-target="#blame-the-model-last">Blame the model last</a></li>
+  <li><a href="#what-id-do-next" id="toc-what-id-do-next" class="nav-link" data-scroll-target="#what-id-do-next">What I’d do next</a></li>
+  <li><a href="#takeaways" id="toc-takeaways" class="nav-link" data-scroll-target="#takeaways">Takeaways</a></li>
+  </ul>
+</nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">My scorer gave a perfect extractor 0 out of 6</h1>
+  <div class="quarto-categories">
+    <div class="quarto-category">llm</div>
+    <div class="quarto-category">evals</div>
+    <div class="quarto-category">document-ai</div>
+  </div>
+  </div>
+
+<div>
+  <div class="description">
+    What building an LLM contract-extraction pipeline taught me about evaluation: ten ways my eval lied, and why the model was rarely the problem.
+  </div>
+</div>
+
+
+<div class="quarto-title-meta">
+
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>Santosh Kumar Panda </p>
+          </div>
+  </div>
+    
+    <div>
+    <div class="quarto-title-meta-heading">Published</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">October 20, 2026</p>
+    </div>
+  </div>
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<p>The first time I scored my contract extractor, it got zero out of six fields right on the first contract.</p>
+<p>Every one of the six was correct.</p>
+<p>The model had done its job. My scorer hadn’t. That moment set the theme for the whole project: when you build with LLMs, the evaluation is code too, and a wrong eval is worse than no eval, because it sends you off “fixing” a prompt that isn’t broken.</p>
+<p>This post covers what I built, the ten ways my eval lied to me, what the real numbers looked like once it stopped lying, and why most failures weren’t the model’s fault. You can explore every failure yourself further down.</p>
+<section id="the-setup" class="level2">
+<h2 class="anchored" data-anchor-id="the-setup">The setup</h2>
+<p>The task: take messy commercial contracts in, and return clean, structured JSON records out, with quality measured per field.</p>
+<p>I used <a href="https://www.atticusprojectai.org/cuad">CUAD</a>, a public set of commercial contracts from SEC filings, labelled by legal experts. Having labels from day one meant I could measure from the start instead of eyeballing outputs.</p>
+<p>I picked six fields that cover different types, because each type needs its own way of deciding “is this right?”:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Field</th>
+<th>Type</th>
+<th>What makes it hard</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Parties</td>
+<td>List of entities</td>
+<td>Aliases (“MBE”, “the Company”), partial matches</td>
+</tr>
+<tr class="even">
+<td>Agreement date</td>
+<td>Date</td>
+<td>Formats, blanks like “March ___, 1999”</td>
+</tr>
+<tr class="odd">
+<td>Governing law</td>
+<td>Jurisdiction</td>
+<td>“Ontario” vs “Ontario, Canada”</td>
+</tr>
+<tr class="even">
+<td>Renewal term</td>
+<td>Duration</td>
+<td>“twelve (12) months each” vs “successive 1 year”</td>
+</tr>
+<tr class="odd">
+<td>Cap on liability</td>
+<td>Yes / no</td>
+<td>The definition is broader than it sounds</td>
+</tr>
+<tr class="even">
+<td>Non-compete</td>
+<td>Yes / no</td>
+<td>Overlaps with exclusivity clauses</td>
+</tr>
+</tbody>
+</table>
+<p>The pipeline is deliberately simple:</p>
+<figure class="di-fig figure"><div class="frame">
+<svg viewbox="0 0 1000 300" role="img" aria-label="Runtime path: PDF to Docling to markdown, to an LLM with a Pydantic schema, to a validated JSON record, saved append-only. Eval loop: the scorer reads saved runs and CUAD labels, produces metrics and failure causes, and one change at a time feeds back into extraction.">
+  <defs>
+    <marker id="ah-p1" viewbox="0 0 10 10" refx="9" refy="5" markerwidth="7" markerheight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="ah-p1a" viewbox="0 0 10 10" refx="9" refy="5" markerwidth="7" markerheight="7" orient="auto-start-reverse"><path class="ah-accent" d="M0,0 L10,5 L0,10 z"></path></marker>
+  </defs>
+  <text x="20" y="30" class="t-cap muted">EXTRACTION</text>
+  <rect class="box" x="20" y="48" width="130" height="58" rx="6"></rect><text x="85" y="73" class="t-md" text-anchor="middle">Contract PDF</text><text x="85" y="91" class="t-sm muted" text-anchor="middle">SEC filing</text>
+  <rect class="box" x="215" y="48" width="130" height="58" rx="6"></rect><text x="280" y="73" class="t-md" text-anchor="middle">Docling</text><text x="280" y="91" class="t-sm muted" text-anchor="middle">parse to markdown</text>
+  <rect class="box-soft" x="410" y="48" width="160" height="58" rx="6"></rect><text x="490" y="73" class="t-md" text-anchor="middle">LLM + schema</text><text x="490" y="91" class="t-sm muted" text-anchor="middle">structured outputs</text>
+  <rect class="box" x="635" y="48" width="130" height="58" rx="6"></rect><text x="700" y="73" class="t-md" text-anchor="middle">Pydantic</text><text x="700" y="91" class="t-sm muted" text-anchor="middle">validate</text>
+  <rect class="box" x="830" y="48" width="150" height="58" rx="6"></rect><text x="905" y="73" class="t-md" text-anchor="middle">Saved run</text><text x="905" y="91" class="t-sm muted" text-anchor="middle">one JSON per contract</text>
+  <line class="line" x1="150" y1="77" x2="213" y2="77" marker-end="url(#ah-p1)"></line>
+  <line class="line" x1="345" y1="77" x2="408" y2="77" marker-end="url(#ah-p1)"></line><text x="377" y="69" class="t-sm" text-anchor="middle">markdown</text>
+  <line class="line" x1="570" y1="77" x2="633" y2="77" marker-end="url(#ah-p1)"></line><text x="602" y="69" class="t-sm" text-anchor="middle">JSON</text>
+  <line class="line" x1="765" y1="77" x2="828" y2="77" marker-end="url(#ah-p1)"></line><text x="797" y="69" class="t-sm" text-anchor="middle">record</text>
+  <text x="20" y="176" class="t-cap muted">EVALUATION (OFFLINE)</text>
+  <text x="20" y="214" class="t-sm muted">Rescoring reads saved runs, so fixing</text>
+  <text x="20" y="230" class="t-sm muted">the scorer costs no API calls.</text>
+  <rect class="box-soft" x="410" y="196" width="160" height="58" rx="6"></rect><text x="490" y="221" class="t-md" text-anchor="middle">Change one thing</text><text x="490" y="239" class="t-sm muted" text-anchor="middle">prompt or schema</text>
+  <rect class="box" x="635" y="196" width="130" height="58" rx="6"></rect><text x="700" y="221" class="t-md" text-anchor="middle">Metrics</text><text x="700" y="239" class="t-sm muted" text-anchor="middle">+ failure causes</text>
+  <rect class="box" x="830" y="196" width="150" height="58" rx="6"></rect><text x="905" y="221" class="t-md" text-anchor="middle">Scorer</text><text x="905" y="239" class="t-sm muted" text-anchor="middle">vs CUAD labels</text>
+  <line class="line" x1="905" y1="106" x2="905" y2="194" marker-end="url(#ah-p1)"></line><text x="915" y="156" class="t-sm">rescore</text>
+  <line class="line" x1="830" y1="225" x2="767" y2="225" marker-end="url(#ah-p1)"></line><text x="798" y="217" class="t-sm" text-anchor="middle">counts</text>
+  <line class="line" x1="635" y1="225" x2="572" y2="225" marker-end="url(#ah-p1)"></line><text x="603" y="217" class="t-sm" text-anchor="middle">causes</text>
+  <line class="line-accent dash" x1="490" y1="196" x2="490" y2="108" marker-end="url(#ah-p1a)"></line><text x="500" y="156" class="t-sm" style="fill:var(--di-accent)">next run</text>
+</svg></div>
+<figcaption>The extraction path on top, the evaluation loop underneath. Every run is saved, so any two runs can be compared.</figcaption></figure>
+<p>Docling turns each PDF into markdown. A Pydantic model defines the record, and OpenAI’s structured outputs constrain the model’s response to that schema, so I always get valid, typed JSON back. Three schema choices did most of the work:</p>
+<ul>
+<li><strong>Absence is explicit.</strong> Fields are <code>str | None</code> with no default, so the model has to decide “present or not” every time instead of skipping the field.</li>
+<li><strong>Every value comes with evidence.</strong> A verbatim quote from the contract, which I can check is really in the source.</li>
+<li><strong>The field descriptions are the prompt.</strong> The model reads them, so I wrote them like instructions to a junior paralegal.</li>
+</ul>
+<p>One thing to be clear about: structured outputs guarantee the <em>shape</em> of the answer, not its truth. A perfectly valid record can still hold the wrong date. That’s what the evaluation is for.</p>
+</section>
+<section id="ten-ways-my-eval-lied" class="level2">
+<h2 class="anchored" data-anchor-id="ten-ways-my-eval-lied">Ten ways my eval lied</h2>
+<p>Here’s the full list. Every one of these produced output that looked plausible, which is exactly what made them dangerous.</p>
+<ol type="1">
+<li><strong>I compared against the wrong column.</strong> CUAD has a raw clause-text column and a normalised answer column for each field. I scored against the raw text, so “Delaware” never matched a full sentence about Delaware law.</li>
+<li><strong>I used exact string equality for every field.</strong> “2007-04-06” doesn’t equal “April 6, 2007”.</li>
+<li><strong>“Absent” had five spellings.</strong> <code>None</code>, <code>NaN</code>, <code>""</code>, <code>[]</code> and <code>False</code> all mean “not in the contract”, but they didn’t compare equal to each other, so correct absences were marked wrong.</li>
+<li><strong>A column lookup silently missed.</strong> I searched for a column starting with “party”. The column is called “Parties”. The ground truth for parties was empty for all twenty contracts.</li>
+<li><strong>True negatives counted as hits.</strong> When both the model and the label said “no”, my code counted a true positive. That inflated recall on the two yes/no fields.</li>
+<li><strong>Wrong values only counted as misses.</strong> If the model said Illinois and the label said New York, I counted a false negative but not a false positive, so precision showed a perfect 1.00 alongside three wrong answers.</li>
+<li><strong>The join between outputs and labels was a substring match.</strong> A filename ending “…Agreement” could match one ending “…Agreement3” and score a contract against another contract’s labels.</li>
+<li><strong>Contracts were dropped silently.</strong> A <code>continue</code> skipped contracts while the header still said “20 contracts”.</li>
+<li><strong>My name cleaning merged entities.</strong> Stripping everything in brackets turned “TOM Online (BVI) Limited” into “tom online limited”.</li>
+<li><strong>I read a stale results file.</strong> An old output got re-shared as new. The numbers looked familiar because they were the old ones.</li>
+</ol>
+<p>The fixes are boring, and that’s the point. One matcher per field type. One function that decides what “absent” means. An explicit map from field to column that raises an error if a column is missing. Exact joins. A check that every field’s outcomes add up to the number of contracts scored. And unit tests built from the awkward real values I’d just been burned by.</p>
+</section>
+<section id="what-i-measure-now" class="level2">
+<h2 class="anchored" data-anchor-id="what-i-measure-now">What I measure now</h2>
+<p>Each field in each contract lands in exactly one cell:</p>
+<figure class="di-fig figure"><div class="frame">
+<svg viewbox="0 0 640 300" role="img" aria-label="Outcome grid. Label present and value extracted: true positive if they match, false positive plus false negative if not. Value extracted but label absent: false positive. Label present but nothing extracted: false negative. Both absent: true negative.">
+  <text x="370" y="26" class="t-cap muted" text-anchor="middle">CUAD LABEL</text>
+  <text x="20" y="52" class="t-cap muted">MODEL ↓</text>
+  <text x="245" y="52" class="t-md" text-anchor="middle">present</text>
+  <text x="495" y="52" class="t-md" text-anchor="middle">absent</text>
+  <text x="110" y="118" class="t-md" text-anchor="end">extracted</text><text x="110" y="134" class="t-md" text-anchor="end">a value</text>
+  <text x="110" y="228" class="t-md" text-anchor="end">extracted</text><text x="110" y="244" class="t-md" text-anchor="end">nothing</text>
+  <rect class="box" x="125" y="66" width="240" height="110" rx="4"></rect><rect class="tp" x="125" y="66" width="6" height="110"></rect>
+  <text x="145" y="96" class="t-lg" style="fill:var(--di-tp)">TP</text><text x="178" y="96" class="t-sm">if the values match</text>
+  <text x="145" y="132" class="t-lg" style="fill:var(--di-fp)">FP</text><text x="172" y="132" class="t-lg">+</text><text x="186" y="132" class="t-lg" style="fill:var(--di-fn)">FN</text><text x="218" y="132" class="t-sm">if they don't</text>
+  <text x="145" y="160" class="t-sm muted">a wrong value is both</text>
+  <rect class="box" x="375" y="66" width="240" height="110" rx="4"></rect><rect class="fp" x="375" y="66" width="6" height="110"></rect>
+  <text x="395" y="96" class="t-lg" style="fill:var(--di-fp)">FP</text><text x="395" y="122" class="t-sm">invented a value</text><text x="395" y="140" class="t-sm muted">hurts precision</text>
+  <rect class="box" x="125" y="184" width="240" height="96" rx="4"></rect><rect class="fn" x="125" y="184" width="6" height="96"></rect>
+  <text x="145" y="214" class="t-lg" style="fill:var(--di-fn)">FN</text><text x="145" y="240" class="t-sm">missed a real value</text><text x="145" y="258" class="t-sm muted">hurts recall</text>
+  <rect class="box" x="375" y="184" width="240" height="96" rx="4"></rect><rect class="tn" x="375" y="184" width="6" height="96"></rect>
+  <text x="395" y="214" class="t-lg" style="fill:var(--di-tn)">TN</text><text x="395" y="240" class="t-sm">correctly absent</text><text x="395" y="258" class="t-sm muted">in neither formula</text>
+</svg></div>
+<figcaption>Precision is TP / (TP + FP): when it answers, is it right? Recall is TP / (TP + FN): of the real values, how many did it find?</figcaption></figure>
+<p>True negatives appear in neither formula on purpose. If a clause is missing from 80% of contracts, a model that always says “not present” scores 80% accuracy and zero recall. Accuracy would make it look good; recall tells the truth.</p>
+<p>The core of the scorer is small:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> classify(ext, truth, matches<span class="op">=</span>exact) <span class="op">-&gt;</span> <span class="bu">list</span>[<span class="bu">str</span>]:</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    ext_present, truth_present <span class="op">=</span> <span class="kw">not</span> is_absent(ext), <span class="kw">not</span> is_absent(truth)</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> ext_present <span class="kw">and</span> <span class="kw">not</span> truth_present: <span class="cf">return</span> [<span class="st">"TN"</span>]</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> ext_present <span class="kw">and</span> <span class="kw">not</span> truth_present:     <span class="cf">return</span> [<span class="st">"FP"</span>]</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> truth_present <span class="kw">and</span> <span class="kw">not</span> ext_present:     <span class="cf">return</span> [<span class="st">"FN"</span>]</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> [<span class="st">"TP"</span>] <span class="cf">if</span> matches(ext, truth) <span class="cf">else</span> [<span class="st">"FP"</span>, <span class="st">"FN"</span>]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="the-real-baseline" class="level2">
+<h2 class="anchored" data-anchor-id="the-real-baseline">The real baseline</h2>
+<p>With the scorer fixed, here’s the first honest run on 20 contracts. Parties is scored per party, so its counts don’t add up to 20. Support is how many real examples each recall figure rests on.</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Field</th>
+<th style="text-align: right;">TP</th>
+<th style="text-align: right;">FP</th>
+<th style="text-align: right;">FN</th>
+<th style="text-align: right;">TN</th>
+<th style="text-align: right;">Support</th>
+<th style="text-align: right;">Precision</th>
+<th style="text-align: right;">Recall</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>agreement_date</td>
+<td style="text-align: right;">18</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">19</td>
+<td style="text-align: right;">0.90</td>
+<td style="text-align: right;">0.95</td>
+</tr>
+<tr class="even">
+<td>governing_law</td>
+<td style="text-align: right;">18</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">19</td>
+<td style="text-align: right;">0.95</td>
+<td style="text-align: right;">0.95</td>
+</tr>
+<tr class="odd">
+<td>cap_on_liability</td>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">14</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">18</td>
+<td style="text-align: right;">1.00</td>
+<td style="text-align: right;">0.22</td>
+</tr>
+<tr class="even">
+<td>non_compete</td>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">12</td>
+<td style="text-align: right;">0.80</td>
+<td style="text-align: right;">0.33</td>
+</tr>
+<tr class="odd">
+<td>parties</td>
+<td style="text-align: right;">44</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">47</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">91</td>
+<td style="text-align: right;">0.98</td>
+<td style="text-align: right;">0.48</td>
+</tr>
+<tr class="even">
+<td>renewal_term</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">12</td>
+<td style="text-align: right;">10</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">11</td>
+<td style="text-align: right;">0.08</td>
+<td style="text-align: right;">0.09</td>
+</tr>
+</tbody>
+</table>
+<p>The pattern is clear: <strong>precision is high almost everywhere.</strong> When the model gives an answer, it’s usually right. It fails by not answering, or by answering in a different shape from the label.</p>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Small samples are noisy
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Non-compete recall of 4 out of 12 has a 95% confidence interval of roughly 0.14 to 0.61. One more hit would move it by eight points. Always report the support next to the number.</p>
+</div>
+</div>
+</section>
+<section id="explore-every-failure" class="level2">
+<h2 class="anchored" data-anchor-id="explore-every-failure">Explore every failure</h2>
+<p>Here are all 56 failing field–contract pairs from that run, each with my reading of the cause. Filter by field or by cause. For parties, green names were found, amber ones were missed, and red ones were extra.</p>
+<div class="fx" id="fx" aria-label="Failure explorer">
+  <p class="fx-label">Field</p>
+  <div class="fx-row" id="fx-fields" role="group" aria-label="Filter by field"></div>
+  <p class="fx-label">Cause</p>
+  <div class="fx-row" id="fx-buckets" role="group" aria-label="Filter by cause"></div>
+  <div class="fx-bar" id="fx-bar" aria-hidden="true"></div>
+  <div class="fx-legend" id="fx-legend"></div>
+  <p class="fx-summary" id="fx-summary" aria-live="polite"></p>
+  <div class="fx-list" id="fx-list"></div>
+</div>
+
+<script>
+(function () {
+  // Run 1: every field/contract pair that was not a true positive or true negative.
+  // Buckets are my reading of each failure; "suspected" ones are not yet confirmed against the labels.
+  var BUCKETS = [
+    { id: "Definition", color: "var(--di-accent)", hint: "The field description doesn't match what the labellers marked" },
+    { id: "Schema", color: "var(--di-fn)", hint: "Right clause, wrong shape" },
+    { id: "Label noise", color: "var(--di-tn)", hint: "The label itself looks wrong or odd" },
+    { id: "Model", color: "var(--di-fp)", hint: "A genuine model error" }
+  ];
+  var F = [];
+  function add(field, co, o, bucket, ext, truth, ev, note) {
+    F.push({ field: field, co: co, o: o, bucket: bucket, ext: ext, truth: truth, ev: ev || null, note: note || "" });
+  }
+
+  // agreement_date
+  add("agreement_date", "theglobe.com", ["FP","FN"], "Model", "1999-03-01", "03/[]/1999",
+      "This Co-Branding Agreement (the \"Agreement\") is entered into as of March ___, 1999",
+      "The day is blank in the contract. The model invented the 1st.");
+  add("agreement_date", "PaperExchange", ["FP"], "Label noise", "1999-09-30", "(empty)",
+      "This Co-Branding Agreement (this \"Agreement\") dated September 30, 1999",
+      "The contract is clearly dated, but the label is empty.");
+
+  // governing_law
+  add("governing_law", "Ebix", ["FP","FN"], "Schema", "illinois", "illinois; new york",
+      "governed by the laws of the state where a suit is properly filed ... being either Illinois or New York.",
+      "Two jurisdictions; the field holds only one string.");
+
+  // cap_on_liability: 14 misses
+  ["Ebix","2TheMart","Impresse","RAE Systems","eDiets","theglobe.com","LeadersOnline","mPhase",
+   "Rand Worldwide","Invenda","HealthCentral","TOM Online","MusclePharm","Embark.com"].forEach(function (c) {
+    add("cap_on_liability", c, ["FN"], "Definition", "false", "Yes", null,
+        "Suspected: my description asked for a monetary cap; the labellers' definition is broader.");
+  });
+
+  // non_compete
+  add("non_compete", "Stamps.com", ["FP"], "Definition", "true", "No",
+      "The Company shall not enter into any agreement or arrangement ... with any provider of manifesting or shipping services through non-carrier retail shipping locations.",
+      "Suspected: CUAD likely labels this under its separate Exclusivity category.");
+  ["2TheMart","Impresse","RAE Systems","eDiets","LeadersOnline","Invenda","HealthCentral","Neoforma"].forEach(function (c) {
+    add("non_compete", c, ["FN"], "Definition", "false", "Yes", null,
+        "Suspected: the restriction is worded in a way my description didn't cover.");
+  });
+
+  // parties: scored per party
+  var P = [
+    ["Stamps.com", ["ishipcom inc","mail boxes etc usa inc"], ["ishipcom inc","mail boxes etc usa inc","mailboxes etc usa inc","mbe","company"]],
+    ["Ebix", ["aboutcom inc","ebixcom inc"], ["aboutcom inc","ebixcom inc","about","ebix"]],
+    ["2TheMart", ["iescrow inc","2themartcom inc"], ["iescrow inc","2themartcom inc","iescrow","2themart"]],
+    ["Integrity Media", ["integrity incorporated","time life inc"], ["integrity incorporated","time life inc","integrity","tl","dba time life music"]],
+    ["Impresse", ["verticalnet inc","impresse corporation"], ["verticalnet inc","impresse corporation","verticalnet","impresse"]],
+    ["RAE Systems", ["nettaxi online communities inc","solutions media inc"], ["nettaxi online communities inc","solutions media inc dba spinrecordscom","nettaxi","spinrecordscom or client"]],
+    ["eDiets", ["womencom networks inc","edietscom inc"], ["womencom networks inc","edietscom inc","womencom","ediets"]],
+    ["theglobe.com", ["theglobecom inc","the boxlot company"], ["theglobecom inc","the boxlot company","theglobe","boxlot"]],
+    ["LeadersOnline", ["verticalnet inc","leadersonline inc"], ["verticalnet inc","leadersonline inc","verticalnet","leadersonline"]],
+    ["mPhase", ["lucent technologies inc","mphase technologies inc"], ["lucent technologies inc","mphase technologies inc","lucent","mphase","each individually a party and collectively the parties"]],
+    ["Rand Worldwide", ["dassault systemes","planetcad inc"], ["dassault systemes","planetcad inc","planetcad","andor certain affiliates of dassault systemes"]],
+    ["HealthCentral", ["medialinx interactive lp","healthcentralcom inc"], ["medialinx interactive lp","healthcentralcom inc","mlx","hci"]],
+    ["TOM Online", ["skype communications sa","skype technologies sa","tom online limited","tom online inc","telonline limited"], ["skype communications sa","skype technologies sa","tom online limited","tom online inc","telonline limited","skype","skype holding","online bvi","tom holding","company","skype online bvi and the company may be referred to individually as party …"]],
+    ["MusclePharm", ["marine mp llc","arnold schwarzenegger","fitness publications inc","musclepharm corporation"], ["marine mp llc","arnold schwarzenegger","fitness publications inc","musclepharm corporation","lender","endorser","fitness","collectively lender endorser and fitness are referred to as the as parties","collectively musclepharm or the company"]],
+    ["PC Quote", ["pc quote inc","ab watley inc"], ["pc quote inc","ab watley inc","pcq","abw"]],
+    ["Neoforma", ["verticalnet inc","neoformacom inc"], ["verticalnet inc","neoformacom inc","verticalnet","neoforma"]],
+    ["Embark.com", ["snap technologies inc","united airlines inc"], ["snap technologies inc","united airlines inc","snap","sponsor"]],
+    ["PaperExchange", ["verticalnet inc","paperexchangecom llc"], ["verticalnet inc","paperexchangecom llc","verticalnet","paperexchange"]]
+  ];
+  P.forEach(function (p) {
+    var ext = p[1], truth = p[2];
+    var o = ["TP"];
+    if (truth.some(function (t) { return ext.indexOf(t) === -1; })) o.push("FN");
+    if (ext.some(function (e) { return truth.indexOf(e) === -1; })) o.push("FP");
+    var note = p[0] === "RAE Systems"
+      ? "Aliases and labelled boilerplate are missed, and 'solutions media inc' vs '... dba spinrecordscom' needs a looser matcher."
+      : "Legal names found; the labels also count defined short names and boilerplate spans.";
+    add("parties", p[0], o, "Definition", ext, truth, null, note);
+  });
+
+  // renewal_term
+  var R = [
+    ["Stamps.com", "... extend such term for additional two (2)-year periods (each a \"Renewal Period\").", "successive 2 years"],
+    ["2TheMart", "This Agreement may be renewed for any number of successive one (1) year terms by mutual written agreement ...", "successive 1 year"],
+    ["RAE Systems", "... shall be automatically renewed for successive periods of one (1) year unless otherwise terminated ...", "successive 1 year"],
+    ["eDiets", "This agreement shall automatically renew for additional successive terms of twelve (12) months each ...", "successive 1 year"],
+    ["mPhase", "mPhase shall have the right to annually renew this agreement for a period of one year ...", "successive 1 year"],
+    ["Rand Worldwide", "The Agreement shall automatically renew for successive one year additional terms ...", "successive 1 year"],
+    ["TOM Online", "This Agreement shall automatically continue following the Initial Term, for an additional period of three (3) years", "3 years"],
+    ["Neoforma", "This Agreement will automatically renew ... on a year to year basis (each, a \"Renewal Term\") ...", "successive 1 year"],
+    ["PaperExchange", "This Agreement will automatically renew ... on a year to year basis (each, a \"Renewal Term\") ...", "successive 1 year"]
+  ];
+  R.forEach(function (r) {
+    add("renewal_term", r[0], ["FP","FN"], "Schema", r[1], r[2], null,
+        "Right clause, returned as a sentence; the label is a normalised duration.");
+  });
+  add("renewal_term", "Integrity Media", ["FP"], "Model", "the parties must mutually agree in writing to extend the term for additional periods of time.", "(empty)", null,
+      "A mutual-agreement extension with no term; the label treats it as no renewal term. Debatable.");
+  add("renewal_term", "Impresse", ["FP"], "Model", "The Term of this Agreement shall begin on the Effective Date and shall end fifteen months therefrom.", "(empty)", null,
+      "Returned the initial term, not a renewal.");
+  add("renewal_term", "MusclePharm", ["FP","FN"], "Label noise", "... shall automatically be renewed for an additional term of three (3) years (the \"First Additional Term\") ...", "7/22/2019; 7/22/2022", null,
+      "The label holds expiry dates, not a duration.");
+
+  // ---------- UI ----------
+  var FIELDS = ["agreement_date","governing_law","cap_on_liability","non_compete","parties","renewal_term"];
+  var state = { field: "all", bucket: "all" };
+  var $ = function (id) { return document.getElementById(id); };
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c]; }); }
+  function inField(f) { return state.field === "all" || f.field === state.field; }
+  function inBucket(f) { return state.bucket === "all" || f.bucket === state.bucket; }
+
+  function chip(label, n, pressed, onClick) {
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "chip"; b.setAttribute("aria-pressed", pressed ? "true" : "false");
+    b.innerHTML = esc(label) + ' <span class="n">' + n + "</span>";
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  function render() {
+    var fRow = $("fx-fields"); fRow.innerHTML = "";
+    fRow.appendChild(chip("All fields", F.length, state.field === "all", function () { state.field = "all"; render(); }));
+    FIELDS.forEach(function (fd) {
+      var n = F.filter(function (f) { return f.field === fd; }).length;
+      fRow.appendChild(chip(fd, n, state.field === fd, function () { state.field = fd; render(); }));
+    });
+
+    var scoped = F.filter(inField);
+    var bRow = $("fx-buckets"); bRow.innerHTML = "";
+    bRow.appendChild(chip("All causes", scoped.length, state.bucket === "all", function () { state.bucket = "all"; render(); }));
+    BUCKETS.forEach(function (b) {
+      var n = scoped.filter(function (f) { return f.bucket === b.id; }).length;
+      var c = chip(b.id, n, state.bucket === b.id, function () { state.bucket = b.id; render(); });
+      c.title = b.hint;
+      bRow.appendChild(c);
+    });
+
+    var bar = $("fx-bar"), legend = $("fx-legend"); bar.innerHTML = ""; legend.innerHTML = "";
+    BUCKETS.forEach(function (b) {
+      var n = scoped.filter(function (f) { return f.bucket === b.id; }).length;
+      var s = document.createElement("span");
+      s.style.width = (scoped.length ? (100 * n / scoped.length) : 0) + "%";
+      s.style.background = b.color;
+      bar.appendChild(s);
+      legend.insertAdjacentHTML("beforeend", '<span><i style="background:' + b.color + '"></i>' + esc(b.id) + " " + n + "</span>");
+    });
+
+    var shown = scoped.filter(inBucket);
+    var model = scoped.filter(function (f) { return f.bucket === "Model"; }).length;
+    $("fx-summary").textContent = shown.length + " of " + F.length + " failing field–contract pairs shown. "
+      + model + " of " + scoped.length + " in this view are genuine model errors.";
+
+    var list = $("fx-list"); list.innerHTML = "";
+    if (!shown.length) { list.innerHTML = '<p class="fx-empty">No failures match this combination.</p>'; return; }
+    shown.forEach(function (f) {
+      var tags = f.o.map(function (o) { return '<span class="fx-tag ' + o + '">' + o + "</span>"; }).join(" ");
+      var body;
+      if (Array.isArray(f.ext)) {
+        var items = f.truth.map(function (t) {
+          return '<span class="' + (f.ext.indexOf(t) !== -1 ? "hit" : "miss") + '">' + esc(t) + "</span>";
+        }).concat(f.ext.filter(function (e) { return f.truth.indexOf(e) === -1; }).map(function (e) {
+          return '<span class="extra">' + esc(e) + "</span>";
+        }));
+        body = '<dl class="fx-kv"><dt>Parties</dt><dd><div class="fx-items">' + items.join("") + "</div></dd>"
+             + '<dt>Key</dt><dd><div class="fx-items"><span class="hit">found</span><span class="miss">missed</span><span class="extra">extra</span></div></dd></dl>';
+      } else {
+        body = '<dl class="fx-kv"><dt>Extracted</dt><dd>' + esc(f.ext) + "</dd><dt>Label</dt><dd>" + esc(f.truth) + "</dd>"
+             + (f.ev ? '<dt>Evidence</dt><dd class="ev">“' + esc(f.ev) + "”</dd>" : "") + "</dl>";
+      }
+      list.insertAdjacentHTML("beforeend",
+        '<article class="fx-card" data-bucket="' + esc(f.bucket) + '">'
+        + '<div class="fx-head"><b>' + esc(f.co) + '</b><span class="fx-field">' + esc(f.field) + "</span>" + tags
+        + '<span class="fx-bucket">' + esc(f.bucket) + "</span></div>"
+        + body
+        + (f.note ? '<p class="fx-note">' + esc(f.note) + "</p>" : "")
+        + "</article>");
+    });
+  }
+  render();
+})();
+</script>
+</section>
+<section id="blame-the-model-last" class="level2">
+<h2 class="anchored" data-anchor-id="blame-the-model-last">Blame the model last</h2>
+<p>When I sorted the failures by cause, the picture changed completely:</p>
+<ul>
+<li><strong>Definition (41):</strong> my field description didn’t match what the labellers meant. Cap on liability is the big one: I asked for a monetary cap, and the labellers clearly counted more than that. For parties, the labels include defined short names like “MBE” and even boilerplate like “each a Party”, while I asked for legal names only.</li>
+<li><strong>Schema (10):</strong> the model found the right clause and returned it in the wrong shape. Nine of the ten renewal-term misses are a full sentence where the label says “successive 1 year”.</li>
+<li><strong>Label noise (2):</strong> one contract is clearly dated but has an empty date label; another has expiry dates where a duration should be.</li>
+<li><strong>Model (3):</strong> an invented day for a blank date, an initial term returned as a renewal term, and one debatable extension clause.</li>
+</ul>
+<p>Three genuine model errors out of 56. The rest were me: my scorer, my schema and my definitions. The order I now check failures in is loader, matcher, schema, label noise, and only then the model.</p>
+</section>
+<section id="what-id-do-next" class="level2">
+<h2 class="anchored" data-anchor-id="what-id-do-next">What I’d do next</h2>
+<ul>
+<li><strong>Rewrite the cap-on-liability and non-compete descriptions</strong> from what the labellers actually marked, then rerun on the same 20 contracts and compare. One change, one rerun.</li>
+<li><strong>Restructure renewal term</strong> into a length, a unit and a “successive” flag, so “twelve months each” and “successive 1 year” compare equal.</li>
+<li><strong>Decide what a party is</strong>, and either extract aliases too or filter them out of the labels, with the rule written down.</li>
+<li><strong>Set aside a held-out test set</strong> before tuning anything, sampled across contract types. My 20-contract sample was mostly one type of agreement, which is its own lesson.</li>
+</ul>
+</section>
+<section id="takeaways" class="level2">
+<h2 class="anchored" data-anchor-id="takeaways">Takeaways</h2>
+<ol type="1">
+<li><strong>Your eval is code.</strong> Test it, make it check itself, and distrust any number you haven’t traced back to a raw value.</li>
+<li><strong>Definitions beat prompts.</strong> Most of my “model errors” were disagreements about what a field means.</li>
+<li><strong>Precision and recall per field, with support.</strong> One accuracy number would have hidden everything in this post.</li>
+</ol>
+<p><em>The contracts and labels are from CUAD by The Atticus Project, licensed under CC BY 4.0. Code for this project: <a href="https://github.com/mediansant/doc-intel">GitHub</a>.</em></p>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    // Ensure there is a toggle, if there isn't float one in the top right
+    if (window.document.querySelector('.quarto-color-scheme-toggle') === null) {
+      const a = window.document.createElement('a');
+      a.classList.add('top-right');
+      a.classList.add('quarto-color-scheme-toggle');
+      a.href = "";
+      a.onclick = function() { try { window.quartoToggleColorScheme(); } catch {} return false; };
+      const i = window.document.createElement("i");
+      i.classList.add('bi');
+      a.appendChild(i);
+      window.document.body.appendChild(a);
+    }
+    setColorSchemeToggle(hasAlternateSentinel())
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp("https:\/\/mediansant\.github\.io\/myblog\/");
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+<footer class="footer">
+  <div class="nav-footer">
+    <div class="nav-footer-left">
+<p>© 2026 Santosh Kumar Panda</p>
+</div>   
+    <div class="nav-footer-center">
+      &nbsp;
+    </div>
+    <div class="nav-footer-right">
+<p>Built with <a href="https://quarto.org">Quarto</a></p>
+</div>
+  </div>
+</footer>
+
+
+
+
+<script src="../../site_libs/quarto-html/zenscroll-min.js"></script>
+</body></html>

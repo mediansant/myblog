@@ -4,83 +4,76 @@
     "href": "about.html",
     "title": "About",
     "section": "",
-    "text": "I build and evaluate LLM systems. This blog collects write-ups of projects, with an emphasis on measuring whether the output is actually right."
+    "text": "I’ve spent about 19 years in data platforms and analytics: streaming with Kafka and Flink, processing with Spark, and lakehouse architectures on Apache Iceberg. Lately I’ve been building with generative AI.\nThis blog is where I write up the projects I build to learn applied AI properly. Each post covers what I built, how I measured it, what went wrong, and what I’d do differently. The code for every post is on GitHub."
   },
   {
     "objectID": "index.html",
     "href": "index.html",
     "title": "Santosh Kumar Panda",
     "section": "",
-    "text": "Getting JSON out of contracts is easy. Proving it’s right is the project.\n\n\nAn LLM pipeline for legal contracts, scored field by field against CUAD expert labels\n\n\n\nLLM\n\nevaluation\n\nstructured-output\n\nDuckDB\n\n\n\nPDF to Markdown to typed record to DuckDB, with precision and recall per field. What the numbers said, and why the honest ones are the interesting ones.\n\n\n\n\n\nOct 12, 2026\n\n\nSantosh Kumar Panda\n\n\n\n\n\nNo matching items"
+    "text": "My scorer gave a perfect extractor 0 out of 6\n\n\n\nllm\n\nevals\n\ndocument-ai\n\n\n\nWhat building an LLM contract-extraction pipeline taught me about evaluation: ten ways my eval lied, and why the model was rarely the problem.\n\n\n\n\n\nOct 20, 2026\n\n\nSantosh Kumar Panda\n\n\n\n\n\nNo matching items"
   },
   {
-    "objectID": "posts/doc-intel-contract-extraction/index.html",
-    "href": "posts/doc-intel-contract-extraction/index.html",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
+    "objectID": "posts/eval-lied/index.html",
+    "href": "posts/eval-lied/index.html",
+    "title": "My scorer gave a perfect extractor 0 out of 6",
     "section": "",
-    "text": "TL;DR. doc-intel turns contract PDFs into typed records (governing law, parties, dates, key clauses) and scores every field against the CUAD expert labels. Governing law and agreement date land at about 0.9+. Liability caps and non-competes are precise but badly under-recalled, which is exactly the kind of thing you only learn by measuring. Code: github.com/mediansant/doc-intel."
+    "text": "The first time I scored my contract extractor, it got zero out of six fields right on the first contract.\nEvery one of the six was correct.\nThe model had done its job. My scorer hadn’t. That moment set the theme for the whole project: when you build with LLMs, the evaluation is code too, and a wrong eval is worse than no eval, because it sends you off “fixing” a prompt that isn’t broken.\nThis post covers what I built, the ten ways my eval lied to me, what the real numbers looked like once it stopped lying, and why most failures weren’t the model’s fault. You can explore every failure yourself further down."
   },
   {
-    "objectID": "posts/doc-intel-contract-extraction/index.html#the-problem-is-not-extraction",
-    "href": "posts/doc-intel-contract-extraction/index.html#the-problem-is-not-extraction",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "The problem is not extraction",
-    "text": "The problem is not extraction\nAnyone can ask an LLM for JSON. The hard question is the one that comes after: is the JSON right?\nSo this project is built around that question rather than around the extraction itself:\n\n\n\n\n\n\n\nPrinciple\nHow it shows up\n\n\n\n\nTyped output\nEvery field lives in a Pydantic schema, and each value carries a verbatim evidence quote a reviewer can check against the contract.\n\n\nGround truth\nResults are scored against CUAD expert labels (510 labelled contracts available, 20 scored so far), per field, as precision and recall.\n\n\nReproducible runs\nEach run is stored with its model, prompt hash and schema version, so “did prompt v2 beat v1?” is a SQL query, not a guess.\n\n\nCheap to change\nExtraction is exposed as an API with caching. The eval harness runs offline against saved outputs."
+    "objectID": "posts/eval-lied/index.html#the-setup",
+    "href": "posts/eval-lied/index.html#the-setup",
+    "title": "My scorer gave a perfect extractor 0 out of 6",
+    "section": "The setup",
+    "text": "The setup\nThe task: take messy commercial contracts in, and return clean, structured JSON records out, with quality measured per field.\nI used CUAD, a public set of commercial contracts from SEC filings, labelled by legal experts. Having labels from day one meant I could measure from the start instead of eyeballing outputs.\nI picked six fields that cover different types, because each type needs its own way of deciding “is this right?”:\n\n\n\n\n\n\n\n\nField\nType\nWhat makes it hard\n\n\n\n\nParties\nList of entities\nAliases (“MBE”, “the Company”), partial matches\n\n\nAgreement date\nDate\nFormats, blanks like “March ___, 1999”\n\n\nGoverning law\nJurisdiction\n“Ontario” vs “Ontario, Canada”\n\n\nRenewal term\nDuration\n“twelve (12) months each” vs “successive 1 year”\n\n\nCap on liability\nYes / no\nThe definition is broader than it sounds\n\n\nNon-compete\nYes / no\nOverlaps with exclusivity clauses\n\n\n\nThe pipeline is deliberately simple:\n\n\n  \n    \n    \n  \n  EXTRACTION\n  Contract PDFSEC filing\n  Doclingparse to markdown\n  LLM + schemastructured outputs\n  Pydanticvalidate\n  Saved runone JSON per contract\n  \n  markdown\n  JSON\n  record\n  EVALUATION (OFFLINE)\n  Rescoring reads saved runs, so fixing\n  the scorer costs no API calls.\n  Change one thingprompt or schema\n  Metrics+ failure causes\n  Scorervs CUAD labels\n  rescore\n  counts\n  causes\n  next run\n\nThe extraction path on top, the evaluation loop underneath. Every run is saved, so any two runs can be compared.\nDocling turns each PDF into markdown. A Pydantic model defines the record, and OpenAI’s structured outputs constrain the model’s response to that schema, so I always get valid, typed JSON back. Three schema choices did most of the work:\n\nAbsence is explicit. Fields are str | None with no default, so the model has to decide “present or not” every time instead of skipping the field.\nEvery value comes with evidence. A verbatim quote from the contract, which I can check is really in the source.\nThe field descriptions are the prompt. The model reads them, so I wrote them like instructions to a junior paralegal.\n\nOne thing to be clear about: structured outputs guarantee the shape of the answer, not its truth. A perfectly valid record can still hold the wrong date. That’s what the evaluation is for."
   },
   {
-    "objectID": "posts/doc-intel-contract-extraction/index.html#what-gets-extracted",
-    "href": "posts/doc-intel-contract-extraction/index.html#what-gets-extracted",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "What gets extracted",
-    "text": "What gets extracted\n\n\n\n\n\n\n\n\nField\nType\nMeaning\n\n\n\n\ngoverning_law\ntext\nJurisdiction as a bare place name, e.g. Delaware\n\n\nparties\nlist\nContracting entities named in the preamble\n\n\nagreement_date\nISO date\nDate the contract was entered into\n\n\nrenewal_term\nfree text\nRenewal / extension provisions\n\n\ncap_on_liability\nbool\nExplicit monetary cap on liability\n\n\nnon_compete\nbool\nNon-compete clause present"
+    "objectID": "posts/eval-lied/index.html#ten-ways-my-eval-lied",
+    "href": "posts/eval-lied/index.html#ten-ways-my-eval-lied",
+    "title": "My scorer gave a perfect extractor 0 out of 6",
+    "section": "Ten ways my eval lied",
+    "text": "Ten ways my eval lied\nHere’s the full list. Every one of these produced output that looked plausible, which is exactly what made them dangerous.\n\nI compared against the wrong column. CUAD has a raw clause-text column and a normalised answer column for each field. I scored against the raw text, so “Delaware” never matched a full sentence about Delaware law.\nI used exact string equality for every field. “2007-04-06” doesn’t equal “April 6, 2007”.\n“Absent” had five spellings. None, NaN, \"\", [] and False all mean “not in the contract”, but they didn’t compare equal to each other, so correct absences were marked wrong.\nA column lookup silently missed. I searched for a column starting with “party”. The column is called “Parties”. The ground truth for parties was empty for all twenty contracts.\nTrue negatives counted as hits. When both the model and the label said “no”, my code counted a true positive. That inflated recall on the two yes/no fields.\nWrong values only counted as misses. If the model said Illinois and the label said New York, I counted a false negative but not a false positive, so precision showed a perfect 1.00 alongside three wrong answers.\nThe join between outputs and labels was a substring match. A filename ending “…Agreement” could match one ending “…Agreement3” and score a contract against another contract’s labels.\nContracts were dropped silently. A continue skipped contracts while the header still said “20 contracts”.\nMy name cleaning merged entities. Stripping everything in brackets turned “TOM Online (BVI) Limited” into “tom online limited”.\nI read a stale results file. An old output got re-shared as new. The numbers looked familiar because they were the old ones.\n\nThe fixes are boring, and that’s the point. One matcher per field type. One function that decides what “absent” means. An explicit map from field to column that raises an error if a column is missing. Exact joins. A check that every field’s outcomes add up to the number of contracts scored. And unit tests built from the awkward real values I’d just been burned by."
   },
   {
-    "objectID": "posts/doc-intel-contract-extraction/index.html#the-pipeline",
-    "href": "posts/doc-intel-contract-extraction/index.html#the-pipeline",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "The pipeline",
-    "text": "The pipeline\n\n\n\n\n\nflowchart TD\n    A[(\"CUAD PDFs +&lt;br/&gt;master_clauses.csv\")] --&gt;|\"parse.py · Docling\"| B[\"Markdown\"]\n    B --&gt;|\"extract.py · OpenAI structured output\"| C[\"ContractRecord&lt;br/&gt;values + evidence\"]\n    C --&gt;|\"backfill.py\"| D[(\"DuckDB&lt;br/&gt;documents · runs · extractions\")]\n    D --&gt;|\"score.py + matchers.py\"| E[\"Precision / recall&lt;br/&gt;per field + failure list\"]\n    A -.-&gt;|\"ground-truth labels\"| E\n\n\n\n\n\n\nDuckDB holds the whole story, and it is append-only, so no run ever overwrites another:\n\n\n\n\n\n\n\nTable\nPurpose\n\n\n\n\ndocuments\nOne row per PDF, keyed by the SHA-256 of its bytes\n\n\nruns\nOne row per (model, prompt hash, schema version)\n\n\nextractions\nThe full record as JSON, plus tokens and latency\n\n\neval_outcomes\nOne TP / FP / FN / TN row per field per document per run\n\n\ncontract_records\nA view that types the JSON into columns for SQL analytics"
+    "objectID": "posts/eval-lied/index.html#what-i-measure-now",
+    "href": "posts/eval-lied/index.html#what-i-measure-now",
+    "title": "My scorer gave a perfect extractor 0 out of 6",
+    "section": "What I measure now",
+    "text": "What I measure now\nEach field in each contract lands in exactly one cell:\n\n\n  CUAD LABEL\n  MODEL ↓\n  present\n  absent\n  extracteda value\n  extractednothing\n  \n  TPif the values match\n  FP+FNif they don't\n  a wrong value is both\n  \n  FPinvented a valuehurts precision\n  \n  FNmissed a real valuehurts recall\n  \n  TNcorrectly absentin neither formula\n\nPrecision is TP / (TP + FP): when it answers, is it right? Recall is TP / (TP + FN): of the real values, how many did it find?\nTrue negatives appear in neither formula on purpose. If a clause is missing from 80% of contracts, a model that always says “not present” scores 80% accuracy and zero recall. Accuracy would make it look good; recall tells the truth.\nThe core of the scorer is small:\ndef classify(ext, truth, matches=exact) -&gt; list[str]:\n    ext_present, truth_present = not is_absent(ext), not is_absent(truth)\n    if not ext_present and not truth_present: return [\"TN\"]\n    if ext_present and not truth_present:     return [\"FP\"]\n    if truth_present and not ext_present:     return [\"FN\"]\n    return [\"TP\"] if matches(ext, truth) else [\"FP\", \"FN\"]"
   },
   {
-    "objectID": "posts/doc-intel-contract-extraction/index.html#serving-it-post-extract",
-    "href": "posts/doc-intel-contract-extraction/index.html#serving-it-post-extract",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "Serving it: POST /extract",
-    "text": "Serving it: POST /extract\nThe same extraction is available as a FastAPI service. Results are cached by PDF hash + model + prompt + schema, so uploading the same file twice only costs one model call.\n\n\n\n\n\nsequenceDiagram\n    autonumber\n    actor Client\n    participant API as FastAPI\n    participant DB as DuckDB\n    participant Doc as Docling\n    participant LLM as OpenAI\n\n    Client-&gt;&gt;API: POST /extract (PDF)\n    API-&gt;&gt;API: doc_id = sha256(bytes)\n    API-&gt;&gt;DB: already extracted?\n    alt cache hit\n        DB--&gt;&gt;API: stored record\n        API--&gt;&gt;Client: 200 (cached: true)\n    else cache miss\n        API-&gt;&gt;Doc: PDF to Markdown\n        API-&gt;&gt;LLM: Markdown + schema\n        LLM--&gt;&gt;API: ContractRecord\n        API-&gt;&gt;DB: insert document + extraction\n        API--&gt;&gt;Client: 200 (cached: false)\n    end\n\n\n\n\n\n\nFailure modes are explicit: 413 over 50 MB, 415 not a PDF, 422 unparseable or no text, 502 model error. A 502 is deliberately not cached, so a retry works."
+    "objectID": "posts/eval-lied/index.html#the-real-baseline",
+    "href": "posts/eval-lied/index.html#the-real-baseline",
+    "title": "My scorer gave a perfect extractor 0 out of 6",
+    "section": "The real baseline",
+    "text": "The real baseline\nWith the scorer fixed, here’s the first honest run on 20 contracts. Parties is scored per party, so its counts don’t add up to 20. Support is how many real examples each recall figure rests on.\n\n\n\nField\nTP\nFP\nFN\nTN\nSupport\nPrecision\nRecall\n\n\n\n\nagreement_date\n18\n2\n1\n0\n19\n0.90\n0.95\n\n\ngoverning_law\n18\n1\n1\n1\n19\n0.95\n0.95\n\n\ncap_on_liability\n4\n0\n14\n2\n18\n1.00\n0.22\n\n\nnon_compete\n4\n1\n8\n7\n12\n0.80\n0.33\n\n\nparties\n44\n1\n47\n0\n91\n0.98\n0.48\n\n\nrenewal_term\n1\n12\n10\n7\n11\n0.08\n0.09\n\n\n\nThe pattern is clear: precision is high almost everywhere. When the model gives an answer, it’s usually right. It fails by not answering, or by answering in a different shape from the label.\n\n\n\n\n\n\nNoteSmall samples are noisy\n\n\n\nNon-compete recall of 4 out of 12 has a 95% confidence interval of roughly 0.14 to 0.61. One more hit would move it by eight points. Always report the support next to the number."
   },
   {
-    "objectID": "posts/doc-intel-contract-extraction/index.html#how-scoring-works",
-    "href": "posts/doc-intel-contract-extraction/index.html#how-scoring-works",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "How scoring works",
-    "text": "How scoring works\nComparing an LLM’s answer to a human label is where most evals quietly go wrong. Each field goes through three steps:\n\nNormalise both sides. State of Delaware and Delaware match. England and Wales becomes {england, wales}. Party aliases like (\"Chase\") are dropped.\nDecide absence with one rule for every field type (None, False, empty, NaN).\nClassify as TP / FP / FN / TN. A wrong value counts as both a false positive and a false negative.\n\nTwo guard rails I’d keep in any eval harness: the scorer asserts that outcomes cover every scored contract, and it lists skipped files instead of hiding them. Partial dates like 03/[]/1999 never match an invented full date."
+    "objectID": "posts/eval-lied/index.html#explore-every-failure",
+    "href": "posts/eval-lied/index.html#explore-every-failure",
+    "title": "My scorer gave a perfect extractor 0 out of 6",
+    "section": "Explore every failure",
+    "text": "Explore every failure\nHere are all 56 failing field–contract pairs from that run, each with my reading of the cause. Filter by field or by cause. For parties, green names were found, amber ones were missed, and red ones were extra.\n\n  Field\n  \n  Cause"
   },
   {
-    "objectID": "posts/doc-intel-contract-extraction/index.html#results",
-    "href": "posts/doc-intel-contract-extraction/index.html#results",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "Results",
-    "text": "Results\nFirst run: gpt-4o-mini on a 20-contract sample.\n\ndata = [\n  {field: \"agreement_date\", metric: \"Precision\", value: 0.90},\n  {field: \"agreement_date\", metric: \"Recall\", value: 0.95},\n  {field: \"governing_law\", metric: \"Precision\", value: 0.95},\n  {field: \"governing_law\", metric: \"Recall\", value: 0.95},\n  {field: \"cap_on_liability\", metric: \"Precision\", value: 1.00},\n  {field: \"cap_on_liability\", metric: \"Recall\", value: 0.22},\n  {field: \"non_compete\", metric: \"Precision\", value: 0.80},\n  {field: \"non_compete\", metric: \"Recall\", value: 0.33},\n  {field: \"parties (per party)\", metric: \"Precision\", value: 0.98},\n  {field: \"parties (per party)\", metric: \"Recall\", value: 0.48},\n  {field: \"renewal_term\", metric: \"Precision\", value: 0.08},\n  {field: \"renewal_term\", metric: \"Recall\", value: 0.09}\n]\nPlot.plot({\n  marginLeft: 130,\n  x: {domain: [0, 1], grid: true, label: \"score\"},\n  y: {label: null},\n  fy: {label: null, domain: [...new Set(data.map(d =&gt; d.field))]},\n  color: {legend: true, domain: [\"Precision\", \"Recall\"], range: [\"#1f6feb\", \"#f0883e\"]},\n  marks: [\n    Plot.barX(data, {x: \"value\", fy: \"field\", y: \"metric\", fill: \"metric\", tip: true}),\n    Plot.text(data, {x: \"value\", fy: \"field\", y: \"metric\", text: d =&gt; d.value.toFixed(2), dx: 14, fontSize: 10}),\n    Plot.ruleX([0])\n  ]\n})\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nField\nPrecision\nRecall\n\n\n\n\nagreement_date\n0.90\n0.95\n\n\ngoverning_law\n0.95\n0.95\n\n\ncap_on_liability\n1.00\n0.22\n\n\nnon_compete\n0.80\n0.33\n\n\nparties (per party)\n0.98\n0.48\n\n\nrenewal_term\n0.08\n0.09\n\n\n\n\n\n\n\n\n\nWarning\n\n\n\nTwenty contracts is a small sample. Treat these numbers as directional, not as a benchmark."
+    "objectID": "posts/eval-lied/index.html#blame-the-model-last",
+    "href": "posts/eval-lied/index.html#blame-the-model-last",
+    "title": "My scorer gave a perfect extractor 0 out of 6",
+    "section": "Blame the model last",
+    "text": "Blame the model last\nWhen I sorted the failures by cause, the picture changed completely:\n\nDefinition (41): my field description didn’t match what the labellers meant. Cap on liability is the big one: I asked for a monetary cap, and the labellers clearly counted more than that. For parties, the labels include defined short names like “MBE” and even boilerplate like “each a Party”, while I asked for legal names only.\nSchema (10): the model found the right clause and returned it in the wrong shape. Nine of the ten renewal-term misses are a full sentence where the label says “successive 1 year”.\nLabel noise (2): one contract is clearly dated but has an empty date label; another has expiry dates where a duration should be.\nModel (3): an invented day for a blank date, an initial term returned as a renewal term, and one debatable extension clause.\n\nThree genuine model errors out of 56. The rest were me: my scorer, my schema and my definitions. The order I now check failures in is loader, matcher, schema, label noise, and only then the model."
   },
   {
-    "objectID": "posts/doc-intel-contract-extraction/index.html#what-the-numbers-actually-say",
-    "href": "posts/doc-intel-contract-extraction/index.html#what-the-numbers-actually-say",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "What the numbers actually say",
-    "text": "What the numbers actually say\nEasy, well-bounded fields work. Governing law and agreement date sit at 0.9+ on both axes. They have one canonical answer and a predictable place in the document.\nThe boolean fields are precise but timid. A precision of 1.00 with recall of 0.22 on liability caps means: when the model says “yes”, it’s right, but it says “yes” far too rarely. That is my own prompt’s fault. It tells the model to answer False unless a clause is explicit, so it misses most caps and non-competes. Nothing in a single accuracy number would have shown this. Splitting into precision and recall did.\nParties are a labelling mismatch as much as a model problem. CUAD labels aliases and roles as separate spans, while the model returns one name per party, so recall tops out near 0.48.\nrenewal_term fails because it is free text. Matching loose prose to loose prose scores poorly whichever side is wrong. The fix is a better schema, not a better model."
+    "objectID": "posts/eval-lied/index.html#what-id-do-next",
+    "href": "posts/eval-lied/index.html#what-id-do-next",
+    "title": "My scorer gave a perfect extractor 0 out of 6",
+    "section": "What I’d do next",
+    "text": "What I’d do next\n\nRewrite the cap-on-liability and non-compete descriptions from what the labellers actually marked, then rerun on the same 20 contracts and compare. One change, one rerun.\nRestructure renewal term into a length, a unit and a “successive” flag, so “twelve months each” and “successive 1 year” compare equal.\nDecide what a party is, and either extract aliases too or filter them out of the labels, with the rule written down.\nSet aside a held-out test set before tuning anything, sampled across contract types. My 20-contract sample was mostly one type of agreement, which is its own lesson."
   },
   {
-    "objectID": "posts/doc-intel-contract-extraction/index.html#whats-next",
-    "href": "posts/doc-intel-contract-extraction/index.html#whats-next",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "What’s next",
-    "text": "What’s next\n\nrun_v2: relax the boolean prompt and re-score. Because runs are keyed by prompt hash, the comparison is one SQL query.\nStructured renewal terms: auto-renews, term length, notice period.\nChunking for very long contracts, which are currently sent whole.\nModel comparison: the harness already keys runs by model, so swapping one in is cheap."
-  },
-  {
-    "objectID": "posts/doc-intel-contract-extraction/index.html#try-it",
-    "href": "posts/doc-intel-contract-extraction/index.html#try-it",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "Try it",
-    "text": "Try it\nuv sync\necho \"OPENAI_API_KEY=sk-...\" &gt; .env\n\nuv run python -m doc_intel.run_extraction     # extract the 20-contract sample\nuv run python -m doc_intel.backfill run_v1    # load into DuckDB\nuv run python -m doc_intel.score run_v1       # precision / recall + failures\nuv run pytest evals                           # 31 offline tests, no API cost\nThe tests cover the API with Docling, the model and DuckDB mocked (success, cache hit, 413/415/422/502) and the matchers using values observed in run_v1.\n\nSource and full README: mediansant/doc-intel."
+    "objectID": "posts/eval-lied/index.html#takeaways",
+    "href": "posts/eval-lied/index.html#takeaways",
+    "title": "My scorer gave a perfect extractor 0 out of 6",
+    "section": "Takeaways",
+    "text": "Takeaways\n\nYour eval is code. Test it, make it check itself, and distrust any number you haven’t traced back to a raw value.\nDefinitions beat prompts. Most of my “model errors” were disagreements about what a field means.\nPrecision and recall per field, with support. One accuracy number would have hidden everything in this post.\n\nThe contracts and labels are from CUAD by The Atticus Project, licensed under CC BY 4.0. Code for this project: GitHub."
   }
 ]

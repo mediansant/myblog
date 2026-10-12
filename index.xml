@@ -8,66 +8,28 @@
 <title>Santosh Kumar Panda</title>
 <link>https://mediansant.github.io/myblog/</link>
 <atom:link href="https://mediansant.github.io/myblog/index.xml" rel="self" type="application/rss+xml"/>
-<description>Notes on building and evaluating LLM systems</description>
+<description>Building and evaluating LLM systems, from a data-platform engineer&#39;s point of view.</description>
 <generator>quarto-1.10.19</generator>
-<lastBuildDate>Mon, 12 Oct 2026 00:00:00 GMT</lastBuildDate>
+<lastBuildDate>Tue, 20 Oct 2026 00:00:00 GMT</lastBuildDate>
 <item>
-  <title>Getting JSON out of contracts is easy. Proving it’s right is the project.</title>
+  <title>My scorer gave a perfect extractor 0 out of 6</title>
   <dc:creator>Santosh Kumar Panda</dc:creator>
-  <link>https://mediansant.github.io/myblog/posts/doc-intel-contract-extraction/</link>
+  <link>https://mediansant.github.io/myblog/posts/eval-lied/</link>
   <description><![CDATA[ 
 
 
 
 
 
-<div class="callout callout-style-simple callout-note">
-<div class="callout-body d-flex">
-<div class="callout-icon-container">
-<i class="callout-icon"></i>
-</div>
-<div class="callout-body-container">
-<p><strong>TL;DR.</strong> <code>doc-intel</code> turns contract PDFs into typed records (governing law, parties, dates, key clauses) and scores every field against the <a href="https://www.atticusprojectai.org/cuad">CUAD</a> expert labels. Governing law and agreement date land at about 0.9+. Liability caps and non-competes are <em>precise but badly under-recalled</em>, which is exactly the kind of thing you only learn by measuring. Code: <a href="https://github.com/mediansant/doc-intel">github.com/mediansant/doc-intel</a>.</p>
-</div>
-</div>
-</div>
-<section id="the-problem-is-not-extraction" class="level2">
-<h2 class="anchored" data-anchor-id="the-problem-is-not-extraction">The problem is not extraction</h2>
-<p>Anyone can ask an LLM for JSON. The hard question is the one that comes after: <strong>is the JSON right?</strong></p>
-<p>So this project is built around that question rather than around the extraction itself:</p>
-<table class="caption-top table">
-<colgroup>
-<col style="width: 50%">
-<col style="width: 50%">
-</colgroup>
-<thead>
-<tr class="header">
-<th>Principle</th>
-<th>How it shows up</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td><strong>Typed output</strong></td>
-<td>Every field lives in a Pydantic schema, and each value carries a verbatim <em>evidence quote</em> a reviewer can check against the contract.</td>
-</tr>
-<tr class="even">
-<td><strong>Ground truth</strong></td>
-<td>Results are scored against CUAD expert labels (510 labelled contracts available, 20 scored so far), per field, as precision and recall.</td>
-</tr>
-<tr class="odd">
-<td><strong>Reproducible runs</strong></td>
-<td>Each run is stored with its model, prompt hash and schema version, so “did prompt v2 beat v1?” is a SQL query, not a guess.</td>
-</tr>
-<tr class="even">
-<td><strong>Cheap to change</strong></td>
-<td>Extraction is exposed as an API with caching. The eval harness runs offline against saved outputs.</td>
-</tr>
-</tbody>
-</table>
-</section>
-<section id="what-gets-extracted" class="level2">
-<h2 class="anchored" data-anchor-id="what-gets-extracted">What gets extracted</h2>
+<p>The first time I scored my contract extractor, it got zero out of six fields right on the first contract.</p>
+<p>Every one of the six was correct.</p>
+<p>The model had done its job. My scorer hadn’t. That moment set the theme for the whole project: when you build with LLMs, the evaluation is code too, and a wrong eval is worse than no eval, because it sends you off “fixing” a prompt that isn’t broken.</p>
+<p>This post covers what I built, the ten ways my eval lied to me, what the real numbers looked like once it stopped lying, and why most failures weren’t the model’s fault. You can explore every failure yourself further down.</p>
+<section id="the-setup" class="level2">
+<h2 class="anchored" data-anchor-id="the-setup">The setup</h2>
+<p>The task: take messy commercial contracts in, and return clean, structured JSON records out, with quality measured per field.</p>
+<p>I used <a href="https://www.atticusprojectai.org/cuad">CUAD</a>, a public set of commercial contracts from SEC filings, labelled by legal experts. Having labels from day one meant I could measure from the start instead of eyeballing outputs.</p>
+<p>I picked six fields that cover different types, because each type needs its own way of deciding “is this right?”:</p>
 <table class="caption-top table">
 <colgroup>
 <col style="width: 33%">
@@ -78,856 +40,533 @@
 <tr class="header">
 <th>Field</th>
 <th>Type</th>
-<th>Meaning</th>
+<th>What makes it hard</th>
 </tr>
 </thead>
 <tbody>
 <tr class="odd">
-<td><code>governing_law</code></td>
-<td>text</td>
-<td>Jurisdiction as a bare place name, e.g.&nbsp;<code>Delaware</code></td>
+<td>Parties</td>
+<td>List of entities</td>
+<td>Aliases (“MBE”, “the Company”), partial matches</td>
 </tr>
 <tr class="even">
-<td><code>parties</code></td>
-<td>list</td>
-<td>Contracting entities named in the preamble</td>
+<td>Agreement date</td>
+<td>Date</td>
+<td>Formats, blanks like “March ___, 1999”</td>
 </tr>
 <tr class="odd">
-<td><code>agreement_date</code></td>
-<td>ISO date</td>
-<td>Date the contract was entered into</td>
+<td>Governing law</td>
+<td>Jurisdiction</td>
+<td>“Ontario” vs “Ontario, Canada”</td>
 </tr>
 <tr class="even">
-<td><code>renewal_term</code></td>
-<td>free text</td>
-<td>Renewal / extension provisions</td>
+<td>Renewal term</td>
+<td>Duration</td>
+<td>“twelve (12) months each” vs “successive 1 year”</td>
 </tr>
 <tr class="odd">
-<td><code>cap_on_liability</code></td>
-<td>bool</td>
-<td>Explicit monetary cap on liability</td>
+<td>Cap on liability</td>
+<td>Yes / no</td>
+<td>The definition is broader than it sounds</td>
 </tr>
 <tr class="even">
-<td><code>non_compete</code></td>
-<td>bool</td>
-<td>Non-compete clause present</td>
+<td>Non-compete</td>
+<td>Yes / no</td>
+<td>Overlaps with exclusivity clauses</td>
 </tr>
 </tbody>
 </table>
+<p>The pipeline is deliberately simple:</p>
+<figure class="di-fig figure"><div class="frame">
+<svg viewbox="0 0 1000 300" aria-label="Runtime path: PDF to Docling to markdown, to an LLM with a Pydantic schema, to a validated JSON record, saved append-only. Eval loop: the scorer reads saved runs and CUAD labels, produces metrics and failure causes, and one change at a time feeds back into extraction.">
+  <defs>
+    <marker id="ah-p1" viewbox="0 0 10 10" refx="9" refy="5" markerwidth="7" markerheight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="ah-p1a" viewbox="0 0 10 10" refx="9" refy="5" markerwidth="7" markerheight="7" orient="auto-start-reverse"><path class="ah-accent" d="M0,0 L10,5 L0,10 z"></path></marker>
+  </defs>
+  <text x="20" y="30" class="t-cap muted">EXTRACTION</text>
+  <rect class="box" x="20" y="48" width="130" height="58" rx="6"></rect><text x="85" y="73" class="t-md" text-anchor="middle">Contract PDF</text><text x="85" y="91" class="t-sm muted" text-anchor="middle">SEC filing</text>
+  <rect class="box" x="215" y="48" width="130" height="58" rx="6"></rect><text x="280" y="73" class="t-md" text-anchor="middle">Docling</text><text x="280" y="91" class="t-sm muted" text-anchor="middle">parse to markdown</text>
+  <rect class="box-soft" x="410" y="48" width="160" height="58" rx="6"></rect><text x="490" y="73" class="t-md" text-anchor="middle">LLM + schema</text><text x="490" y="91" class="t-sm muted" text-anchor="middle">structured outputs</text>
+  <rect class="box" x="635" y="48" width="130" height="58" rx="6"></rect><text x="700" y="73" class="t-md" text-anchor="middle">Pydantic</text><text x="700" y="91" class="t-sm muted" text-anchor="middle">validate</text>
+  <rect class="box" x="830" y="48" width="150" height="58" rx="6"></rect><text x="905" y="73" class="t-md" text-anchor="middle">Saved run</text><text x="905" y="91" class="t-sm muted" text-anchor="middle">one JSON per contract</text>
+  <line class="line" x1="150" y1="77" x2="213" y2="77" marker-end="url(#ah-p1)"></line>
+  <line class="line" x1="345" y1="77" x2="408" y2="77" marker-end="url(#ah-p1)"></line><text x="377" y="69" class="t-sm" text-anchor="middle">markdown</text>
+  <line class="line" x1="570" y1="77" x2="633" y2="77" marker-end="url(#ah-p1)"></line><text x="602" y="69" class="t-sm" text-anchor="middle">JSON</text>
+  <line class="line" x1="765" y1="77" x2="828" y2="77" marker-end="url(#ah-p1)"></line><text x="797" y="69" class="t-sm" text-anchor="middle">record</text>
+  <text x="20" y="176" class="t-cap muted">EVALUATION (OFFLINE)</text>
+  <text x="20" y="214" class="t-sm muted">Rescoring reads saved runs, so fixing</text>
+  <text x="20" y="230" class="t-sm muted">the scorer costs no API calls.</text>
+  <rect class="box-soft" x="410" y="196" width="160" height="58" rx="6"></rect><text x="490" y="221" class="t-md" text-anchor="middle">Change one thing</text><text x="490" y="239" class="t-sm muted" text-anchor="middle">prompt or schema</text>
+  <rect class="box" x="635" y="196" width="130" height="58" rx="6"></rect><text x="700" y="221" class="t-md" text-anchor="middle">Metrics</text><text x="700" y="239" class="t-sm muted" text-anchor="middle">+ failure causes</text>
+  <rect class="box" x="830" y="196" width="150" height="58" rx="6"></rect><text x="905" y="221" class="t-md" text-anchor="middle">Scorer</text><text x="905" y="239" class="t-sm muted" text-anchor="middle">vs CUAD labels</text>
+  <line class="line" x1="905" y1="106" x2="905" y2="194" marker-end="url(#ah-p1)"></line><text x="915" y="156" class="t-sm">rescore</text>
+  <line class="line" x1="830" y1="225" x2="767" y2="225" marker-end="url(#ah-p1)"></line><text x="798" y="217" class="t-sm" text-anchor="middle">counts</text>
+  <line class="line" x1="635" y1="225" x2="572" y2="225" marker-end="url(#ah-p1)"></line><text x="603" y="217" class="t-sm" text-anchor="middle">causes</text>
+  <line class="line-accent dash" x1="490" y1="196" x2="490" y2="108" marker-end="url(#ah-p1a)"></line><text x="500" y="156" class="t-sm" style="fill:var(--di-accent)">next run</text>
+</svg></div>
+<figcaption>The extraction path on top, the evaluation loop underneath. Every run is saved, so any two runs can be compared.</figcaption></figure>
+<p>Docling turns each PDF into markdown. A Pydantic model defines the record, and OpenAI’s structured outputs constrain the model’s response to that schema, so I always get valid, typed JSON back. Three schema choices did most of the work:</p>
+<ul>
+<li><strong>Absence is explicit.</strong> Fields are <code>str | None</code> with no default, so the model has to decide “present or not” every time instead of skipping the field.</li>
+<li><strong>Every value comes with evidence.</strong> A verbatim quote from the contract, which I can check is really in the source.</li>
+<li><strong>The field descriptions are the prompt.</strong> The model reads them, so I wrote them like instructions to a junior paralegal.</li>
+</ul>
+<p>One thing to be clear about: structured outputs guarantee the <em>shape</em> of the answer, not its truth. A perfectly valid record can still hold the wrong date. That’s what the evaluation is for.</p>
 </section>
-<section id="the-pipeline" class="level2">
-<h2 class="anchored" data-anchor-id="the-pipeline">The pipeline</h2>
-<div class="cell" data-layout-align="default">
-<div class="cell-output-display">
-<div>
-<p></p><figure class="figure"><p></p>
-<div>
-<pre class="mermaid mermaid-js">flowchart TD
-    A[("CUAD PDFs +&lt;br/&gt;master_clauses.csv")] --&gt;|"parse.py · Docling"| B["Markdown"]
-    B --&gt;|"extract.py · OpenAI structured output"| C["ContractRecord&lt;br/&gt;values + evidence"]
-    C --&gt;|"backfill.py"| D[("DuckDB&lt;br/&gt;documents · runs · extractions")]
-    D --&gt;|"score.py + matchers.py"| E["Precision / recall&lt;br/&gt;per field + failure list"]
-    A -.-&gt;|"ground-truth labels"| E
-</pre>
-</div>
-<p></p></figure><p></p>
-</div>
-</div>
-</div>
-<p>DuckDB holds the whole story, and it is append-only, so no run ever overwrites another:</p>
-<table class="caption-top table">
-<colgroup>
-<col style="width: 50%">
-<col style="width: 50%">
-</colgroup>
-<thead>
-<tr class="header">
-<th>Table</th>
-<th>Purpose</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td><code>documents</code></td>
-<td>One row per PDF, keyed by the SHA-256 of its bytes</td>
-</tr>
-<tr class="even">
-<td><code>runs</code></td>
-<td>One row per (model, prompt hash, schema version)</td>
-</tr>
-<tr class="odd">
-<td><code>extractions</code></td>
-<td>The full record as JSON, plus tokens and latency</td>
-</tr>
-<tr class="even">
-<td><code>eval_outcomes</code></td>
-<td>One TP / FP / FN / TN row per field per document per run</td>
-</tr>
-<tr class="odd">
-<td><code>contract_records</code></td>
-<td>A view that types the JSON into columns for SQL analytics</td>
-</tr>
-</tbody>
-</table>
-</section>
-<section id="serving-it-post-extract" class="level2">
-<h2 class="anchored" data-anchor-id="serving-it-post-extract">Serving it: <code>POST /extract</code></h2>
-<p>The same extraction is available as a FastAPI service. Results are cached by PDF hash + model + prompt + schema, so uploading the same file twice only costs one model call.</p>
-<div class="cell" data-layout-align="default">
-<div class="cell-output-display">
-<div>
-<p></p><figure class="figure"><p></p>
-<div>
-<pre class="mermaid mermaid-js">sequenceDiagram
-    autonumber
-    actor Client
-    participant API as FastAPI
-    participant DB as DuckDB
-    participant Doc as Docling
-    participant LLM as OpenAI
-
-    Client-&gt;&gt;API: POST /extract (PDF)
-    API-&gt;&gt;API: doc_id = sha256(bytes)
-    API-&gt;&gt;DB: already extracted?
-    alt cache hit
-        DB--&gt;&gt;API: stored record
-        API--&gt;&gt;Client: 200 (cached: true)
-    else cache miss
-        API-&gt;&gt;Doc: PDF to Markdown
-        API-&gt;&gt;LLM: Markdown + schema
-        LLM--&gt;&gt;API: ContractRecord
-        API-&gt;&gt;DB: insert document + extraction
-        API--&gt;&gt;Client: 200 (cached: false)
-    end
-</pre>
-</div>
-<p></p></figure><p></p>
-</div>
-</div>
-</div>
-<p>Failure modes are explicit: <strong>413</strong> over 50 MB, <strong>415</strong> not a PDF, <strong>422</strong> unparseable or no text, <strong>502</strong> model error. A 502 is deliberately <em>not</em> cached, so a retry works.</p>
-</section>
-<section id="how-scoring-works" class="level2">
-<h2 class="anchored" data-anchor-id="how-scoring-works">How scoring works</h2>
-<p>Comparing an LLM’s answer to a human label is where most evals quietly go wrong. Each field goes through three steps:</p>
+<section id="ten-ways-my-eval-lied" class="level2">
+<h2 class="anchored" data-anchor-id="ten-ways-my-eval-lied">Ten ways my eval lied</h2>
+<p>Here’s the full list. Every one of these produced output that looked plausible, which is exactly what made them dangerous.</p>
 <ol type="1">
-<li><strong>Normalise both sides.</strong> <code>State of Delaware</code> and <code>Delaware</code> match. <code>England and Wales</code> becomes <code>{england, wales}</code>. Party aliases like <code>("Chase")</code> are dropped.</li>
-<li><strong>Decide absence with one rule</strong> for every field type (<code>None</code>, <code>False</code>, empty, <code>NaN</code>).</li>
-<li><strong>Classify</strong> as TP / FP / FN / TN. A wrong value counts as <em>both</em> a false positive and a false negative.</li>
+<li><strong>I compared against the wrong column.</strong> CUAD has a raw clause-text column and a normalised answer column for each field. I scored against the raw text, so “Delaware” never matched a full sentence about Delaware law.</li>
+<li><strong>I used exact string equality for every field.</strong> “2007-04-06” doesn’t equal “April 6, 2007”.</li>
+<li><strong>“Absent” had five spellings.</strong> <code>None</code>, <code>NaN</code>, <code>""</code>, <code>[]</code> and <code>False</code> all mean “not in the contract”, but they didn’t compare equal to each other, so correct absences were marked wrong.</li>
+<li><strong>A column lookup silently missed.</strong> I searched for a column starting with “party”. The column is called “Parties”. The ground truth for parties was empty for all twenty contracts.</li>
+<li><strong>True negatives counted as hits.</strong> When both the model and the label said “no”, my code counted a true positive. That inflated recall on the two yes/no fields.</li>
+<li><strong>Wrong values only counted as misses.</strong> If the model said Illinois and the label said New York, I counted a false negative but not a false positive, so precision showed a perfect 1.00 alongside three wrong answers.</li>
+<li><strong>The join between outputs and labels was a substring match.</strong> A filename ending “…Agreement” could match one ending “…Agreement3” and score a contract against another contract’s labels.</li>
+<li><strong>Contracts were dropped silently.</strong> A <code>continue</code> skipped contracts while the header still said “20 contracts”.</li>
+<li><strong>My name cleaning merged entities.</strong> Stripping everything in brackets turned “TOM Online (BVI) Limited” into “tom online limited”.</li>
+<li><strong>I read a stale results file.</strong> An old output got re-shared as new. The numbers looked familiar because they were the old ones.</li>
 </ol>
-<p>Two guard rails I’d keep in any eval harness: the scorer asserts that outcomes cover every scored contract, and it <strong>lists skipped files instead of hiding them</strong>. Partial dates like <code>03/[]/1999</code> never match an invented full date.</p>
+<p>The fixes are boring, and that’s the point. One matcher per field type. One function that decides what “absent” means. An explicit map from field to column that raises an error if a column is missing. Exact joins. A check that every field’s outcomes add up to the number of contracts scored. And unit tests built from the awkward real values I’d just been burned by.</p>
 </section>
-<section id="results" class="level2">
-<h2 class="anchored" data-anchor-id="results">Results</h2>
-<p>First run: <code>gpt-4o-mini</code> on a 20-contract sample.</p>
-<div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code hidden" id="cb1" data-startfrom="107" data-source-offset="-0" style="background: #f1f3f5;"><pre class="sourceCode js code-with-copy"><code class="sourceCode javascript" style="counter-reset: source-line 106;"><span id="cb1-107">data <span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">=</span> [</span>
-<span id="cb1-108">  {<span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">field</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"agreement_date"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">metric</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"Precision"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">value</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="fl" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">0.90</span>}<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span></span>
-<span id="cb1-109">  {<span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">field</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"agreement_date"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">metric</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"Recall"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">value</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="fl" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">0.95</span>}<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span></span>
-<span id="cb1-110">  {<span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">field</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"governing_law"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">metric</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"Precision"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">value</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="fl" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">0.95</span>}<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span></span>
-<span id="cb1-111">  {<span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">field</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"governing_law"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">metric</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"Recall"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">value</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="fl" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">0.95</span>}<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span></span>
-<span id="cb1-112">  {<span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">field</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"cap_on_liability"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">metric</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"Precision"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">value</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="fl" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">1.00</span>}<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span></span>
-<span id="cb1-113">  {<span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">field</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"cap_on_liability"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">metric</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"Recall"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">value</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="fl" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">0.22</span>}<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span></span>
-<span id="cb1-114">  {<span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">field</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"non_compete"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">metric</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"Precision"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">value</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="fl" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">0.80</span>}<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span></span>
-<span id="cb1-115">  {<span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">field</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"non_compete"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">metric</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"Recall"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">value</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="fl" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">0.33</span>}<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span></span>
-<span id="cb1-116">  {<span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">field</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"parties (per party)"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">metric</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"Precision"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">value</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="fl" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">0.98</span>}<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span></span>
-<span id="cb1-117">  {<span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">field</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"parties (per party)"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">metric</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"Recall"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">value</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="fl" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">0.48</span>}<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span></span>
-<span id="cb1-118">  {<span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">field</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"renewal_term"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">metric</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"Precision"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">value</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="fl" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">0.08</span>}<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span></span>
-<span id="cb1-119">  {<span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">field</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"renewal_term"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">metric</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"Recall"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">value</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="fl" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">0.09</span>}</span>
-<span id="cb1-120">]</span>
-<span id="cb1-121">Plot<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">.</span><span class="fu" style="color: #4758AB;
-background-color: null;
-font-style: inherit;">plot</span>({</span>
-<span id="cb1-122">  <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">marginLeft</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="dv" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">130</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span></span>
-<span id="cb1-123">  <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">x</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> {<span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">domain</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> [<span class="dv" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">0</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dv" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">1</span>]<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">grid</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="kw" style="color: #003B4F;
+<section id="what-i-measure-now" class="level2">
+<h2 class="anchored" data-anchor-id="what-i-measure-now">What I measure now</h2>
+<p>Each field in each contract lands in exactly one cell:</p>
+<figure class="di-fig figure"><div class="frame">
+<svg viewbox="0 0 640 300" aria-label="Outcome grid. Label present and value extracted: true positive if they match, false positive plus false negative if not. Value extracted but label absent: false positive. Label present but nothing extracted: false negative. Both absent: true negative.">
+  <text x="370" y="26" class="t-cap muted" text-anchor="middle">CUAD LABEL</text>
+  <text x="20" y="52" class="t-cap muted">MODEL ↓</text>
+  <text x="245" y="52" class="t-md" text-anchor="middle">present</text>
+  <text x="495" y="52" class="t-md" text-anchor="middle">absent</text>
+  <text x="110" y="118" class="t-md" text-anchor="end">extracted</text><text x="110" y="134" class="t-md" text-anchor="end">a value</text>
+  <text x="110" y="228" class="t-md" text-anchor="end">extracted</text><text x="110" y="244" class="t-md" text-anchor="end">nothing</text>
+  <rect class="box" x="125" y="66" width="240" height="110" rx="4"></rect><rect class="tp" x="125" y="66" width="6" height="110"></rect>
+  <text x="145" y="96" class="t-lg" style="fill:var(--di-tp)">TP</text><text x="178" y="96" class="t-sm">if the values match</text>
+  <text x="145" y="132" class="t-lg" style="fill:var(--di-fp)">FP</text><text x="172" y="132" class="t-lg">+</text><text x="186" y="132" class="t-lg" style="fill:var(--di-fn)">FN</text><text x="218" y="132" class="t-sm">if they don't</text>
+  <text x="145" y="160" class="t-sm muted">a wrong value is both</text>
+  <rect class="box" x="375" y="66" width="240" height="110" rx="4"></rect><rect class="fp" x="375" y="66" width="6" height="110"></rect>
+  <text x="395" y="96" class="t-lg" style="fill:var(--di-fp)">FP</text><text x="395" y="122" class="t-sm">invented a value</text><text x="395" y="140" class="t-sm muted">hurts precision</text>
+  <rect class="box" x="125" y="184" width="240" height="96" rx="4"></rect><rect class="fn" x="125" y="184" width="6" height="96"></rect>
+  <text x="145" y="214" class="t-lg" style="fill:var(--di-fn)">FN</text><text x="145" y="240" class="t-sm">missed a real value</text><text x="145" y="258" class="t-sm muted">hurts recall</text>
+  <rect class="box" x="375" y="184" width="240" height="96" rx="4"></rect><rect class="tn" x="375" y="184" width="6" height="96"></rect>
+  <text x="395" y="214" class="t-lg" style="fill:var(--di-tn)">TN</text><text x="395" y="240" class="t-sm">correctly absent</text><text x="395" y="258" class="t-sm muted">in neither formula</text>
+</svg></div>
+<figcaption>Precision is TP / (TP + FP): when it answers, is it right? Recall is TP / (TP + FN): of the real values, how many did it find?</figcaption></figure>
+<p>True negatives appear in neither formula on purpose. If a clause is missing from 80% of contracts, a model that always says “not present” scores 80% accuracy and zero recall. Accuracy would make it look good; recall tells the truth.</p>
+<p>The core of the scorer is small:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><span class="kw" style="color: #003B4F;
 background-color: null;
 font-weight: bold;
-font-style: inherit;">true</span><span class="op" style="color: #5E5E5E;
+font-style: inherit;">def</span> classify(ext, truth, matches<span class="op" style="color: #5E5E5E;
 background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
+font-style: inherit;">=</span>exact) <span class="op" style="color: #5E5E5E;
 background-color: null;
-font-style: inherit;">label</span><span class="op" style="color: #5E5E5E;
+font-style: inherit;">-&gt;</span> <span class="bu" style="color: null;
 background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
+font-style: inherit;">list</span>[<span class="bu" style="color: null;
 background-color: null;
-font-style: inherit;">"score"</span>}<span class="op" style="color: #5E5E5E;
+font-style: inherit;">str</span>]:</span>
+<span id="cb1-2">    ext_present, truth_present <span class="op" style="color: #5E5E5E;
 background-color: null;
-font-style: inherit;">,</span></span>
-<span id="cb1-124">  <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">y</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> {<span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">label</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="kw" style="color: #003B4F;
+font-style: inherit;">=</span> <span class="kw" style="color: #003B4F;
 background-color: null;
 font-weight: bold;
-font-style: inherit;">null</span>}<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span></span>
-<span id="cb1-125">  <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">fy</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> {<span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">label</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="kw" style="color: #003B4F;
+font-style: inherit;">not</span> is_absent(ext), <span class="kw" style="color: #003B4F;
 background-color: null;
 font-weight: bold;
-font-style: inherit;">null</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">domain</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> [<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">...</span><span class="kw" style="color: #003B4F;
+font-style: inherit;">not</span> is_absent(truth)</span>
+<span id="cb1-3">    <span class="cf" style="color: #003B4F;
 background-color: null;
 font-weight: bold;
-font-style: inherit;">new</span> <span class="bu" style="color: null;
-background-color: null;
-font-style: inherit;">Set</span>(data<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">.</span><span class="fu" style="color: #4758AB;
-background-color: null;
-font-style: inherit;">map</span>(d <span class="kw" style="color: #003B4F;
+font-style: inherit;">if</span> <span class="kw" style="color: #003B4F;
 background-color: null;
 font-weight: bold;
-font-style: inherit;">=&gt;</span> d<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">.</span><span class="at" style="color: #657422;
-background-color: null;
-font-style: inherit;">field</span>))]}<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span></span>
-<span id="cb1-126">  <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">color</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> {<span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">legend</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="kw" style="color: #003B4F;
+font-style: inherit;">not</span> ext_present <span class="kw" style="color: #003B4F;
 background-color: null;
 font-weight: bold;
-font-style: inherit;">true</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">domain</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> [<span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"Precision"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"Recall"</span>]<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">range</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> [<span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"#1f6feb"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"#f0883e"</span>]}<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span></span>
-<span id="cb1-127">  <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">marks</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> [</span>
-<span id="cb1-128">    Plot<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">.</span><span class="fu" style="color: #4758AB;
-background-color: null;
-font-style: inherit;">barX</span>(data<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> {<span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">x</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"value"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">fy</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"field"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">y</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"metric"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">fill</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"metric"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">tip</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="kw" style="color: #003B4F;
+font-style: inherit;">and</span> <span class="kw" style="color: #003B4F;
 background-color: null;
 font-weight: bold;
-font-style: inherit;">true</span>})<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span></span>
-<span id="cb1-129">    Plot<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">.</span><span class="fu" style="color: #4758AB;
-background-color: null;
-font-style: inherit;">text</span>(data<span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> {<span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">x</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"value"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">fy</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"field"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">y</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"metric"</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
-background-color: null;
-font-style: inherit;">text</span><span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">:</span> d <span class="kw" style="color: #003B4F;
+font-style: inherit;">not</span> truth_present: <span class="cf" style="color: #003B4F;
 background-color: null;
 font-weight: bold;
-font-style: inherit;">=&gt;</span> d<span class="op" style="color: #5E5E5E;
+font-style: inherit;">return</span> [<span class="st" style="color: #20794D;
 background-color: null;
-font-style: inherit;">.</span><span class="at" style="color: #657422;
+font-style: inherit;">"TN"</span>]</span>
+<span id="cb1-4">    <span class="cf" style="color: #003B4F;
 background-color: null;
-font-style: inherit;">value</span><span class="op" style="color: #5E5E5E;
+font-weight: bold;
+font-style: inherit;">if</span> ext_present <span class="kw" style="color: #003B4F;
 background-color: null;
-font-style: inherit;">.</span><span class="fu" style="color: #4758AB;
+font-weight: bold;
+font-style: inherit;">and</span> <span class="kw" style="color: #003B4F;
 background-color: null;
-font-style: inherit;">toFixed</span>(<span class="dv" style="color: #AD0000;
+font-weight: bold;
+font-style: inherit;">not</span> truth_present:     <span class="cf" style="color: #003B4F;
 background-color: null;
-font-style: inherit;">2</span>)<span class="op" style="color: #5E5E5E;
+font-weight: bold;
+font-style: inherit;">return</span> [<span class="st" style="color: #20794D;
 background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
+font-style: inherit;">"FP"</span>]</span>
+<span id="cb1-5">    <span class="cf" style="color: #003B4F;
 background-color: null;
-font-style: inherit;">dx</span><span class="op" style="color: #5E5E5E;
+font-weight: bold;
+font-style: inherit;">if</span> truth_present <span class="kw" style="color: #003B4F;
 background-color: null;
-font-style: inherit;">:</span> <span class="dv" style="color: #AD0000;
+font-weight: bold;
+font-style: inherit;">and</span> <span class="kw" style="color: #003B4F;
 background-color: null;
-font-style: inherit;">14</span><span class="op" style="color: #5E5E5E;
+font-weight: bold;
+font-style: inherit;">not</span> ext_present:     <span class="cf" style="color: #003B4F;
 background-color: null;
-font-style: inherit;">,</span> <span class="dt" style="color: #AD0000;
+font-weight: bold;
+font-style: inherit;">return</span> [<span class="st" style="color: #20794D;
 background-color: null;
-font-style: inherit;">fontSize</span><span class="op" style="color: #5E5E5E;
+font-style: inherit;">"FN"</span>]</span>
+<span id="cb1-6">    <span class="cf" style="color: #003B4F;
 background-color: null;
-font-style: inherit;">:</span> <span class="dv" style="color: #AD0000;
+font-weight: bold;
+font-style: inherit;">return</span> [<span class="st" style="color: #20794D;
 background-color: null;
-font-style: inherit;">10</span>})<span class="op" style="color: #5E5E5E;
+font-style: inherit;">"TP"</span>] <span class="cf" style="color: #003B4F;
 background-color: null;
-font-style: inherit;">,</span></span>
-<span id="cb1-130">    Plot<span class="op" style="color: #5E5E5E;
+font-weight: bold;
+font-style: inherit;">if</span> matches(ext, truth) <span class="cf" style="color: #003B4F;
 background-color: null;
-font-style: inherit;">.</span><span class="fu" style="color: #4758AB;
+font-weight: bold;
+font-style: inherit;">else</span> [<span class="st" style="color: #20794D;
 background-color: null;
-font-style: inherit;">ruleX</span>([<span class="dv" style="color: #AD0000;
+font-style: inherit;">"FP"</span>, <span class="st" style="color: #20794D;
 background-color: null;
-font-style: inherit;">0</span>])</span>
-<span id="cb1-131">  ]</span>
-<span id="cb1-132">})</span></code></pre></div></div>
-<div class="cell-output cell-output-display">
-<div>
-<div id="ojs-cell-1-1" data-nodetype="declaration">
-
-</div>
-</div>
-</div>
-<div class="cell-output cell-output-display">
-<div>
-<div id="ojs-cell-1-2" data-nodetype="expression">
-
-</div>
-</div>
-</div>
-</div>
+font-style: inherit;">"FN"</span>]</span></code></pre></div></div>
+</section>
+<section id="the-real-baseline" class="level2">
+<h2 class="anchored" data-anchor-id="the-real-baseline">The real baseline</h2>
+<p>With the scorer fixed, here’s the first honest run on 20 contracts. Parties is scored per party, so its counts don’t add up to 20. Support is how many real examples each recall figure rests on.</p>
 <table class="caption-top table">
 <thead>
 <tr class="header">
 <th>Field</th>
-<th>Precision</th>
-<th>Recall</th>
+<th style="text-align: right;">TP</th>
+<th style="text-align: right;">FP</th>
+<th style="text-align: right;">FN</th>
+<th style="text-align: right;">TN</th>
+<th style="text-align: right;">Support</th>
+<th style="text-align: right;">Precision</th>
+<th style="text-align: right;">Recall</th>
 </tr>
 </thead>
 <tbody>
 <tr class="odd">
 <td>agreement_date</td>
-<td>0.90</td>
-<td>0.95</td>
+<td style="text-align: right;">18</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">19</td>
+<td style="text-align: right;">0.90</td>
+<td style="text-align: right;">0.95</td>
 </tr>
 <tr class="even">
 <td>governing_law</td>
-<td>0.95</td>
-<td>0.95</td>
+<td style="text-align: right;">18</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">19</td>
+<td style="text-align: right;">0.95</td>
+<td style="text-align: right;">0.95</td>
 </tr>
 <tr class="odd">
 <td>cap_on_liability</td>
-<td>1.00</td>
-<td><strong>0.22</strong></td>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">14</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">18</td>
+<td style="text-align: right;">1.00</td>
+<td style="text-align: right;">0.22</td>
 </tr>
 <tr class="even">
 <td>non_compete</td>
-<td>0.80</td>
-<td><strong>0.33</strong></td>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">12</td>
+<td style="text-align: right;">0.80</td>
+<td style="text-align: right;">0.33</td>
 </tr>
 <tr class="odd">
-<td>parties (per party)</td>
-<td>0.98</td>
-<td><strong>0.48</strong></td>
+<td>parties</td>
+<td style="text-align: right;">44</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">47</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">91</td>
+<td style="text-align: right;">0.98</td>
+<td style="text-align: right;">0.48</td>
 </tr>
 <tr class="even">
 <td>renewal_term</td>
-<td><strong>0.08</strong></td>
-<td><strong>0.09</strong></td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">12</td>
+<td style="text-align: right;">10</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">11</td>
+<td style="text-align: right;">0.08</td>
+<td style="text-align: right;">0.09</td>
 </tr>
 </tbody>
 </table>
-<div class="callout callout-style-default callout-warning callout-titled">
+<p>The pattern is clear: <strong>precision is high almost everywhere.</strong> When the model gives an answer, it’s usually right. It fails by not answering, or by answering in a different shape from the label.</p>
+<div class="callout callout-style-default callout-note callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-Warning
+<span class="screen-reader-only">Note</span>Small samples are noisy
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>Twenty contracts is a small sample. Treat these numbers as directional, not as a benchmark.</p>
+<p>Non-compete recall of 4 out of 12 has a 95% confidence interval of roughly 0.14 to 0.61. One more hit would move it by eight points. Always report the support next to the number.</p>
 </div>
 </div>
 </section>
-<section id="what-the-numbers-actually-say" class="level2">
-<h2 class="anchored" data-anchor-id="what-the-numbers-actually-say">What the numbers actually say</h2>
-<p><strong>Easy, well-bounded fields work.</strong> Governing law and agreement date sit at 0.9+ on both axes. They have one canonical answer and a predictable place in the document.</p>
-<p><strong>The boolean fields are precise but timid.</strong> A precision of 1.00 with recall of 0.22 on liability caps means: when the model says “yes”, it’s right, but it says “yes” far too rarely. That is my own prompt’s fault. It tells the model to answer <code>False</code> unless a clause is explicit, so it misses most caps and non-competes. Nothing in a single accuracy number would have shown this. Splitting into precision and recall did.</p>
-<p><strong>Parties are a labelling mismatch as much as a model problem.</strong> CUAD labels aliases and roles as separate spans, while the model returns one name per party, so recall tops out near 0.48.</p>
-<p><strong><code>renewal_term</code> fails because it is free text.</strong> Matching loose prose to loose prose scores poorly whichever side is wrong. The fix is a better schema, not a better model.</p>
+<section id="explore-every-failure" class="level2">
+<h2 class="anchored" data-anchor-id="explore-every-failure">Explore every failure</h2>
+<p>Here are all 56 failing field–contract pairs from that run, each with my reading of the cause. Filter by field or by cause. For parties, green names were found, amber ones were missed, and red ones were extra.</p>
+<div class="fx" id="fx" aria-label="Failure explorer">
+  <p class="fx-label">Field</p>
+  <div class="fx-row" id="fx-fields" aria-label="Filter by field"></div>
+  <p class="fx-label">Cause</p>
+  <div class="fx-row" id="fx-buckets" aria-label="Filter by cause"></div>
+  
+  <div class="fx-legend" id="fx-legend"></div>
+  <p class="fx-summary" id="fx-summary" aria-live="polite"></p>
+  <div class="fx-list" id="fx-list"></div>
+</div>
+
+<script>
+(function () {
+  // Run 1: every field/contract pair that was not a true positive or true negative.
+  // Buckets are my reading of each failure; "suspected" ones are not yet confirmed against the labels.
+  var BUCKETS = [
+    { id: "Definition", color: "var(--di-accent)", hint: "The field description doesn't match what the labellers marked" },
+    { id: "Schema", color: "var(--di-fn)", hint: "Right clause, wrong shape" },
+    { id: "Label noise", color: "var(--di-tn)", hint: "The label itself looks wrong or odd" },
+    { id: "Model", color: "var(--di-fp)", hint: "A genuine model error" }
+  ];
+  var F = [];
+  function add(field, co, o, bucket, ext, truth, ev, note) {
+    F.push({ field: field, co: co, o: o, bucket: bucket, ext: ext, truth: truth, ev: ev || null, note: note || "" });
+  }
+
+  // agreement_date
+  add("agreement_date", "theglobe.com", ["FP","FN"], "Model", "1999-03-01", "03/[]/1999",
+      "This Co-Branding Agreement (the \"Agreement\") is entered into as of March ___, 1999",
+      "The day is blank in the contract. The model invented the 1st.");
+  add("agreement_date", "PaperExchange", ["FP"], "Label noise", "1999-09-30", "(empty)",
+      "This Co-Branding Agreement (this \"Agreement\") dated September 30, 1999",
+      "The contract is clearly dated, but the label is empty.");
+
+  // governing_law
+  add("governing_law", "Ebix", ["FP","FN"], "Schema", "illinois", "illinois; new york",
+      "governed by the laws of the state where a suit is properly filed ... being either Illinois or New York.",
+      "Two jurisdictions; the field holds only one string.");
+
+  // cap_on_liability: 14 misses
+  ["Ebix","2TheMart","Impresse","RAE Systems","eDiets","theglobe.com","LeadersOnline","mPhase",
+   "Rand Worldwide","Invenda","HealthCentral","TOM Online","MusclePharm","Embark.com"].forEach(function (c) {
+    add("cap_on_liability", c, ["FN"], "Definition", "false", "Yes", null,
+        "Suspected: my description asked for a monetary cap; the labellers' definition is broader.");
+  });
+
+  // non_compete
+  add("non_compete", "Stamps.com", ["FP"], "Definition", "true", "No",
+      "The Company shall not enter into any agreement or arrangement ... with any provider of manifesting or shipping services through non-carrier retail shipping locations.",
+      "Suspected: CUAD likely labels this under its separate Exclusivity category.");
+  ["2TheMart","Impresse","RAE Systems","eDiets","LeadersOnline","Invenda","HealthCentral","Neoforma"].forEach(function (c) {
+    add("non_compete", c, ["FN"], "Definition", "false", "Yes", null,
+        "Suspected: the restriction is worded in a way my description didn't cover.");
+  });
+
+  // parties: scored per party
+  var P = [
+    ["Stamps.com", ["ishipcom inc","mail boxes etc usa inc"], ["ishipcom inc","mail boxes etc usa inc","mailboxes etc usa inc","mbe","company"]],
+    ["Ebix", ["aboutcom inc","ebixcom inc"], ["aboutcom inc","ebixcom inc","about","ebix"]],
+    ["2TheMart", ["iescrow inc","2themartcom inc"], ["iescrow inc","2themartcom inc","iescrow","2themart"]],
+    ["Integrity Media", ["integrity incorporated","time life inc"], ["integrity incorporated","time life inc","integrity","tl","dba time life music"]],
+    ["Impresse", ["verticalnet inc","impresse corporation"], ["verticalnet inc","impresse corporation","verticalnet","impresse"]],
+    ["RAE Systems", ["nettaxi online communities inc","solutions media inc"], ["nettaxi online communities inc","solutions media inc dba spinrecordscom","nettaxi","spinrecordscom or client"]],
+    ["eDiets", ["womencom networks inc","edietscom inc"], ["womencom networks inc","edietscom inc","womencom","ediets"]],
+    ["theglobe.com", ["theglobecom inc","the boxlot company"], ["theglobecom inc","the boxlot company","theglobe","boxlot"]],
+    ["LeadersOnline", ["verticalnet inc","leadersonline inc"], ["verticalnet inc","leadersonline inc","verticalnet","leadersonline"]],
+    ["mPhase", ["lucent technologies inc","mphase technologies inc"], ["lucent technologies inc","mphase technologies inc","lucent","mphase","each individually a party and collectively the parties"]],
+    ["Rand Worldwide", ["dassault systemes","planetcad inc"], ["dassault systemes","planetcad inc","planetcad","andor certain affiliates of dassault systemes"]],
+    ["HealthCentral", ["medialinx interactive lp","healthcentralcom inc"], ["medialinx interactive lp","healthcentralcom inc","mlx","hci"]],
+    ["TOM Online", ["skype communications sa","skype technologies sa","tom online limited","tom online inc","telonline limited"], ["skype communications sa","skype technologies sa","tom online limited","tom online inc","telonline limited","skype","skype holding","online bvi","tom holding","company","skype online bvi and the company may be referred to individually as party …"]],
+    ["MusclePharm", ["marine mp llc","arnold schwarzenegger","fitness publications inc","musclepharm corporation"], ["marine mp llc","arnold schwarzenegger","fitness publications inc","musclepharm corporation","lender","endorser","fitness","collectively lender endorser and fitness are referred to as the as parties","collectively musclepharm or the company"]],
+    ["PC Quote", ["pc quote inc","ab watley inc"], ["pc quote inc","ab watley inc","pcq","abw"]],
+    ["Neoforma", ["verticalnet inc","neoformacom inc"], ["verticalnet inc","neoformacom inc","verticalnet","neoforma"]],
+    ["Embark.com", ["snap technologies inc","united airlines inc"], ["snap technologies inc","united airlines inc","snap","sponsor"]],
+    ["PaperExchange", ["verticalnet inc","paperexchangecom llc"], ["verticalnet inc","paperexchangecom llc","verticalnet","paperexchange"]]
+  ];
+  P.forEach(function (p) {
+    var ext = p[1], truth = p[2];
+    var o = ["TP"];
+    if (truth.some(function (t) { return ext.indexOf(t) === -1; })) o.push("FN");
+    if (ext.some(function (e) { return truth.indexOf(e) === -1; })) o.push("FP");
+    var note = p[0] === "RAE Systems"
+      ? "Aliases and labelled boilerplate are missed, and 'solutions media inc' vs '... dba spinrecordscom' needs a looser matcher."
+      : "Legal names found; the labels also count defined short names and boilerplate spans.";
+    add("parties", p[0], o, "Definition", ext, truth, null, note);
+  });
+
+  // renewal_term
+  var R = [
+    ["Stamps.com", "... extend such term for additional two (2)-year periods (each a \"Renewal Period\").", "successive 2 years"],
+    ["2TheMart", "This Agreement may be renewed for any number of successive one (1) year terms by mutual written agreement ...", "successive 1 year"],
+    ["RAE Systems", "... shall be automatically renewed for successive periods of one (1) year unless otherwise terminated ...", "successive 1 year"],
+    ["eDiets", "This agreement shall automatically renew for additional successive terms of twelve (12) months each ...", "successive 1 year"],
+    ["mPhase", "mPhase shall have the right to annually renew this agreement for a period of one year ...", "successive 1 year"],
+    ["Rand Worldwide", "The Agreement shall automatically renew for successive one year additional terms ...", "successive 1 year"],
+    ["TOM Online", "This Agreement shall automatically continue following the Initial Term, for an additional period of three (3) years", "3 years"],
+    ["Neoforma", "This Agreement will automatically renew ... on a year to year basis (each, a \"Renewal Term\") ...", "successive 1 year"],
+    ["PaperExchange", "This Agreement will automatically renew ... on a year to year basis (each, a \"Renewal Term\") ...", "successive 1 year"]
+  ];
+  R.forEach(function (r) {
+    add("renewal_term", r[0], ["FP","FN"], "Schema", r[1], r[2], null,
+        "Right clause, returned as a sentence; the label is a normalised duration.");
+  });
+  add("renewal_term", "Integrity Media", ["FP"], "Model", "the parties must mutually agree in writing to extend the term for additional periods of time.", "(empty)", null,
+      "A mutual-agreement extension with no term; the label treats it as no renewal term. Debatable.");
+  add("renewal_term", "Impresse", ["FP"], "Model", "The Term of this Agreement shall begin on the Effective Date and shall end fifteen months therefrom.", "(empty)", null,
+      "Returned the initial term, not a renewal.");
+  add("renewal_term", "MusclePharm", ["FP","FN"], "Label noise", "... shall automatically be renewed for an additional term of three (3) years (the \"First Additional Term\") ...", "7/22/2019; 7/22/2022", null,
+      "The label holds expiry dates, not a duration.");
+
+  // ---------- UI ----------
+  var FIELDS = ["agreement_date","governing_law","cap_on_liability","non_compete","parties","renewal_term"];
+  var state = { field: "all", bucket: "all" };
+  var $ = function (id) { return document.getElementById(id); };
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c]; }); }
+  function inField(f) { return state.field === "all" || f.field === state.field; }
+  function inBucket(f) { return state.bucket === "all" || f.bucket === state.bucket; }
+
+  function chip(label, n, pressed, onClick) {
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "chip"; b.setAttribute("aria-pressed", pressed ? "true" : "false");
+    b.innerHTML = esc(label) + ' <span class="n">' + n + "</span>";
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  function render() {
+    var fRow = $("fx-fields"); fRow.innerHTML = "";
+    fRow.appendChild(chip("All fields", F.length, state.field === "all", function () { state.field = "all"; render(); }));
+    FIELDS.forEach(function (fd) {
+      var n = F.filter(function (f) { return f.field === fd; }).length;
+      fRow.appendChild(chip(fd, n, state.field === fd, function () { state.field = fd; render(); }));
+    });
+
+    var scoped = F.filter(inField);
+    var bRow = $("fx-buckets"); bRow.innerHTML = "";
+    bRow.appendChild(chip("All causes", scoped.length, state.bucket === "all", function () { state.bucket = "all"; render(); }));
+    BUCKETS.forEach(function (b) {
+      var n = scoped.filter(function (f) { return f.bucket === b.id; }).length;
+      var c = chip(b.id, n, state.bucket === b.id, function () { state.bucket = b.id; render(); });
+      c.title = b.hint;
+      bRow.appendChild(c);
+    });
+
+    var bar = $("fx-bar"), legend = $("fx-legend"); bar.innerHTML = ""; legend.innerHTML = "";
+    BUCKETS.forEach(function (b) {
+      var n = scoped.filter(function (f) { return f.bucket === b.id; }).length;
+      var s = document.createElement("span");
+      s.style.width = (scoped.length ? (100 * n / scoped.length) : 0) + "%";
+      s.style.background = b.color;
+      bar.appendChild(s);
+      legend.insertAdjacentHTML("beforeend", '<span><i style="background:' + b.color + '"></i>' + esc(b.id) + " " + n + "</span>");
+    });
+
+    var shown = scoped.filter(inBucket);
+    var model = scoped.filter(function (f) { return f.bucket === "Model"; }).length;
+    $("fx-summary").textContent = shown.length + " of " + F.length + " failing field–contract pairs shown. "
+      + model + " of " + scoped.length + " in this view are genuine model errors.";
+
+    var list = $("fx-list"); list.innerHTML = "";
+    if (!shown.length) { list.innerHTML = '<p class="fx-empty">No failures match this combination.</p>'; return; }
+    shown.forEach(function (f) {
+      var tags = f.o.map(function (o) { return '<span class="fx-tag ' + o + '">' + o + "</span>"; }).join(" ");
+      var body;
+      if (Array.isArray(f.ext)) {
+        var items = f.truth.map(function (t) {
+          return '<span class="' + (f.ext.indexOf(t) !== -1 ? "hit" : "miss") + '">' + esc(t) + "</span>";
+        }).concat(f.ext.filter(function (e) { return f.truth.indexOf(e) === -1; }).map(function (e) {
+          return '<span class="extra">' + esc(e) + "</span>";
+        }));
+        body = '<dl class="fx-kv"><dt>Parties</dt><dd><div class="fx-items">' + items.join("") + "</div></dd>"
+             + '<dt>Key</dt><dd><div class="fx-items"><span class="hit">found</span><span class="miss">missed</span><span class="extra">extra</span></div></dd></dl>';
+      } else {
+        body = '<dl class="fx-kv"><dt>Extracted</dt><dd>' + esc(f.ext) + "</dd><dt>Label</dt><dd>" + esc(f.truth) + "</dd>"
+             + (f.ev ? '<dt>Evidence</dt><dd class="ev">“' + esc(f.ev) + "”</dd>" : "") + "</dl>";
+      }
+      list.insertAdjacentHTML("beforeend",
+        '<article class="fx-card" data-bucket="' + esc(f.bucket) + '">'
+        + '<div class="fx-head"><b>' + esc(f.co) + '</b><span class="fx-field">' + esc(f.field) + "</span>" + tags
+        + '<span class="fx-bucket">' + esc(f.bucket) + "</span></div>"
+        + body
+        + (f.note ? '<p class="fx-note">' + esc(f.note) + "</p>" : "")
+        + "</article>");
+    });
+  }
+  render();
+})();
+</script>
 </section>
-<section id="whats-next" class="level2">
-<h2 class="anchored" data-anchor-id="whats-next">What’s next</h2>
+<section id="blame-the-model-last" class="level2">
+<h2 class="anchored" data-anchor-id="blame-the-model-last">Blame the model last</h2>
+<p>When I sorted the failures by cause, the picture changed completely:</p>
 <ul>
-<li><strong><code>run_v2</code></strong>: relax the boolean prompt and re-score. Because runs are keyed by prompt hash, the comparison is one SQL query.</li>
-<li><strong>Structured renewal terms</strong>: auto-renews, term length, notice period.</li>
-<li><strong>Chunking</strong> for very long contracts, which are currently sent whole.</li>
-<li><strong>Model comparison</strong>: the harness already keys runs by model, so swapping one in is cheap.</li>
+<li><strong>Definition (41):</strong> my field description didn’t match what the labellers meant. Cap on liability is the big one: I asked for a monetary cap, and the labellers clearly counted more than that. For parties, the labels include defined short names like “MBE” and even boilerplate like “each a Party”, while I asked for legal names only.</li>
+<li><strong>Schema (10):</strong> the model found the right clause and returned it in the wrong shape. Nine of the ten renewal-term misses are a full sentence where the label says “successive 1 year”.</li>
+<li><strong>Label noise (2):</strong> one contract is clearly dated but has an empty date label; another has expiry dates where a duration should be.</li>
+<li><strong>Model (3):</strong> an invented day for a blank date, an initial term returned as a renewal term, and one debatable extension clause.</li>
+</ul>
+<p>Three genuine model errors out of 56. The rest were me: my scorer, my schema and my definitions. The order I now check failures in is loader, matcher, schema, label noise, and only then the model.</p>
+</section>
+<section id="what-id-do-next" class="level2">
+<h2 class="anchored" data-anchor-id="what-id-do-next">What I’d do next</h2>
+<ul>
+<li><strong>Rewrite the cap-on-liability and non-compete descriptions</strong> from what the labellers actually marked, then rerun on the same 20 contracts and compare. One change, one rerun.</li>
+<li><strong>Restructure renewal term</strong> into a length, a unit and a “successive” flag, so “twelve months each” and “successive 1 year” compare equal.</li>
+<li><strong>Decide what a party is</strong>, and either extract aliases too or filter them out of the labels, with the rule written down.</li>
+<li><strong>Set aside a held-out test set</strong> before tuning anything, sampled across contract types. My 20-contract sample was mostly one type of agreement, which is its own lesson.</li>
 </ul>
 </section>
-<section id="try-it" class="level2">
-<h2 class="anchored" data-anchor-id="try-it">Try it</h2>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2" style="background: #f1f3f5;"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb2-1"><span class="ex" style="color: null;
-background-color: null;
-font-style: inherit;">uv</span> sync</span>
-<span id="cb2-2"><span class="bu" style="color: null;
-background-color: null;
-font-style: inherit;">echo</span> <span class="st" style="color: #20794D;
-background-color: null;
-font-style: inherit;">"OPENAI_API_KEY=sk-..."</span> <span class="op" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;">&gt;</span> .env</span>
-<span id="cb2-3"></span>
-<span id="cb2-4"><span class="ex" style="color: null;
-background-color: null;
-font-style: inherit;">uv</span> run python <span class="at" style="color: #657422;
-background-color: null;
-font-style: inherit;">-m</span> doc_intel.run_extraction     <span class="co" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;"># extract the 20-contract sample</span></span>
-<span id="cb2-5"><span class="ex" style="color: null;
-background-color: null;
-font-style: inherit;">uv</span> run python <span class="at" style="color: #657422;
-background-color: null;
-font-style: inherit;">-m</span> doc_intel.backfill run_v1    <span class="co" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;"># load into DuckDB</span></span>
-<span id="cb2-6"><span class="ex" style="color: null;
-background-color: null;
-font-style: inherit;">uv</span> run python <span class="at" style="color: #657422;
-background-color: null;
-font-style: inherit;">-m</span> doc_intel.score run_v1       <span class="co" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;"># precision / recall + failures</span></span>
-<span id="cb2-7"><span class="ex" style="color: null;
-background-color: null;
-font-style: inherit;">uv</span> run pytest evals                           <span class="co" style="color: #5E5E5E;
-background-color: null;
-font-style: inherit;"># 31 offline tests, no API cost</span></span></code></pre></div></div>
-<p>The tests cover the API with Docling, the model and DuckDB mocked (success, cache hit, 413/415/422/502) and the matchers using values observed in <code>run_v1</code>.</p>
-<hr>
-<p><em>Source and full README: <a href="https://github.com/mediansant/doc-intel">mediansant/doc-intel</a>.</em></p>
+<section id="takeaways" class="level2">
+<h2 class="anchored" data-anchor-id="takeaways">Takeaways</h2>
+<ol type="1">
+<li><strong>Your eval is code.</strong> Test it, make it check itself, and distrust any number you haven’t traced back to a raw value.</li>
+<li><strong>Definitions beat prompts.</strong> Most of my “model errors” were disagreements about what a field means.</li>
+<li><strong>Precision and recall per field, with support.</strong> One accuracy number would have hidden everything in this post.</li>
+</ol>
+<p><em>The contracts and labels are from CUAD by The Atticus Project, licensed under CC BY 4.0. Code for this project: <a href="https://github.com/mediansant/doc-intel">GitHub</a>.</em></p>
 
 
 </section>
 
  ]]></description>
-  <category>LLM</category>
-  <category>evaluation</category>
-  <category>structured-output</category>
-  <category>DuckDB</category>
-  <guid>https://mediansant.github.io/myblog/posts/doc-intel-contract-extraction/</guid>
-  <pubDate>Mon, 12 Oct 2026 00:00:00 GMT</pubDate>
+  <category>llm</category>
+  <category>evals</category>
+  <category>document-ai</category>
+  <guid>https://mediansant.github.io/myblog/posts/eval-lied/</guid>
+  <pubDate>Tue, 20 Oct 2026 00:00:00 GMT</pubDate>
+  <media:content url="https://mediansant.github.io/myblog/posts/eval-lied/card.png" medium="image" type="image/png" height="76" width="144"/>
 </item>
 </channel>
 </rss>
