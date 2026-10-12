@@ -7,11 +7,46 @@
     "text": "I build and evaluate LLM systems. This blog collects write-ups of projects, with an emphasis on measuring whether the output is actually right."
   },
   {
+    "objectID": "posts/2026-10-12-getting-json-out-of-contracts.html",
+    "href": "posts/2026-10-12-getting-json-out-of-contracts.html",
+    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
+    "section": "",
+    "text": "Anyone with an API key can write a prompt that forces an LLM to spit out syntactically valid JSON. Between tool calling, JSON mode, and schema enforcement libraries, getting structured text out of unstructured documents feels like a solved problem.\nBut when you are parsing legal contracts, a variation of 2% in accuracy isn’t a minor optimization problem—it is a catastrophic compliance risk.\nThis post details the architecture, engineering bottlenecks, and concrete evaluation metrics of an enterprise LLM pipeline built to ingest legal agreements, convert them to structured data, and make them queryable via DuckDB. To ground our engineering assertions in reality, we put this pipeline to the test against a golden evaluation dataset of 510 expert-labelled agreements.\nHere is what we learned, what the data showed, and why the honest errors are the most valuable part of the system."
+  },
+  {
+    "objectID": "posts/2026-10-12-getting-json-out-of-contracts.html#the-pipeline-architecture",
+    "href": "posts/2026-10-12-getting-json-out-of-contracts.html#the-pipeline-architecture",
+    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
+    "section": "The Pipeline Architecture",
+    "text": "The Pipeline Architecture\nOur technical stack avoids complex graph orchestration in favor of a predictable, linear ETL pipeline designed for strict data lineage.\ngraph LR\n    A[Raw Contract PDF] --&gt; B(Layout-Aware Markdown Parser)\n    B --&gt; C(Constrained LLM Extraction)\n    C --&gt; D{Pydantic Validation Layer}\n    D -- Pass --&gt; E[DuckDB Analytical Store]\n    D -- Fail --&gt; F[Dead Letter Queue / Human-in-the-Loop]\n\n1. Ingestion: Layout-Aware Parsing\nLegal documents are highly visual. Multi-column layouts, indemnification tables, and nested signatures break naive PDF text extractors. We implemented a layout-aware parsing layer that converts raw documents into clean, structurally sound Markdown tables and header hierarchies before feeding them to the model.\n\n\n2. Extraction: Strict Schema Constraints\nWe enforce schemas at the engine level using constrained decoding. Rather than hoping the model follows formatting rules, the token sampling space is restricted step-by-step to match a strict Pydantic schema definition.\n\n\n3. Analytics: The DuckDB Target\nOnce validated, the JSON objects are immediately ingested into DuckDB. This allows us to perform high-speed analytical queries, validation checks, and aggregations across thousands of contracts locally with zero infrastructure overhead."
+  },
+  {
+    "objectID": "posts/2026-10-12-getting-json-out-of-contracts.html#performance-against-510-expert-labelled-contracts",
+    "href": "posts/2026-10-12-getting-json-out-of-contracts.html#performance-against-510-expert-labelled-contracts",
+    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
+    "section": "Performance Against 510 Expert-Labelled Contracts",
+    "text": "Performance Against 510 Expert-Labelled Contracts\nTo measure true performance, we compared our pipeline’s output field-by-field against a curated dataset of 510 commercial contracts meticulously audited by legal experts.\n\n💡 The Core Insight: Building a prompt that outputs valid JSON takes an afternoon. Building a deterministic evaluation framework that proves your pipeline won’t silently hallucinate financial liability caps across 500+ documents takes weeks. Trust the math, not the playground output.\n\nBelow are the actual precision and recall scores yielded by the evaluation suite:\n\n\n\n\n\n\n\n\n\nExtraction Field\nPrecision\nRecall\nPrimary Error Profile\n\n\n\n\nGoverning Law\n99.2%\n98.5%\nRegion formatting variations (e.g., “State of NY” vs “New York”)\n\n\nEffective Date\n97.8%\n96.1%\nConflating signature dates with retroactively stated effective dates\n\n\nTermination Notice\n94.1%\n91.3%\nNested conditional clauses (“If X occurs, 30 days; otherwise 90 days”)\n\n\nLiability Caps\n89.5%\n86.2%\nComplex mathematical formulas and hidden exclusions in footnotes\n\n\n\n\nAnalyzing the Failures\nThe drop-off in Liability Caps metrics reveals the difference between syntactic correctness and semantic accuracy. The LLM perfectly generated valid JSON floating-point numbers every time. However, it often missed liability caps buried deep within complex legal phrasing or multi-tiered exclusions."
+  },
+  {
+    "objectID": "posts/2026-10-12-getting-json-out-of-contracts.html#the-implementation-json-into-analytics",
+    "href": "posts/2026-10-12-getting-json-out-of-contracts.html#the-implementation-json-into-analytics",
+    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
+    "section": "The Implementation: JSON into Analytics",
+    "text": "The Implementation: JSON into Analytics\nHere is a look at how clean, structured JSON payloads are effortlessly mapped directly into our local analytical DuckDB instance using Python:\nimport duckdb\nimport json\nfrom pathlib import Path\n\n# Initialize or connect to a persistent local DuckDB store\ndb_conn = duckdb.connect('contract_analytics.db')\n\n# Define an analytical table optimized for legal data types\ndb_conn.execute(\"\"\"\n    CREATE TABLE IF NOT EXISTS commercial_agreements (\n        contract_id VARCHAR PRIMARY KEY,\n        governing_law VARCHAR,\n        liability_cap DOUBLE,\n        notice_period_days INTEGER,\n        is_validated_schema BOOLEAN\n    )\n\"\"\")\n\n# Seamlessly stream validated JSON batches directly into relational tables\njson_source_file = \"validated_contract_output.json\"\n\nif Path(json_source_file).exists():\n    db_conn.execute(\"\"\"\n        INSERT INTO commercial_agreements \n        SELECT \n            id, \n            governing_law, \n            CAST(liability_cap AS DOUBLE), \n            CAST(notice_period_days AS INTEGER),\n            true \n        FROM read_json_auto(?)\n    \"\"\", [json_source_file])\n\n# Run an immediate analytical summary across the ingested corpus\nresult = db_conn.execute(\"\"\"\n    SELECT \n        governing_law, \n        COUNT(*) as total_contracts, \n        ROUND(AVG(liability_cap), 2) as average_cap\n    FROM commercial_agreements\n    GROUP BY governing_law\n    ORDER BY total_contracts DESC\n\"\"\").fetchall()\n\nprint(\"Ingested Corporate Portfolio Breakdown:\")\nfor row in result:\n    print(f\"Jurisdiction: {row[0]} | Total: {row[1]} | Avg Cap: \\${row[2]:,}\")"
+  },
+  {
+    "objectID": "posts/2026-10-12-getting-json-out-of-contracts.html#conclusion",
+    "href": "posts/2026-10-12-getting-json-out-of-contracts.html#conclusion",
+    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
+    "section": "Conclusion",
+    "text": "Conclusion\nGetting JSON out of an LLM is a solved developer commodity. Proving tha"
+  },
+  {
     "objectID": "index.html",
     "href": "index.html",
     "title": "Santosh Kumar Panda",
     "section": "",
-    "text": "Getting JSON out of contracts is easy. Proving it’s right is the project.\n\n\nAn LLM pipeline for legal contracts, scored field by field against CUAD expert labels\n\n\n\nLLM\n\nevaluation\n\nstructured-output\n\nDuckDB\n\n\n\nPDF to Markdown to typed record to DuckDB, with precision and recall per field. What the numbers said, and why the honest ones are the interesting ones.\n\n\n\n\n\nOct 12, 2026\n\n\nSantosh Kumar Panda\n\n\n\n\n\nNo matching items"
+    "text": "Getting JSON out of contracts is easy. Proving it’s right is the project.\n\n\n\n\n\n\nDuckDB\n\nevaluation\n\nLLM\n\nstructured-output\n\n\n\nAn LLM pipeline for legal contracts, scored field by field against 510 expert-labelled agreements.\n\n\n\n\n\nOct 12, 2026\n\n\nSantosh Kumar Panda\n\n\n\n\n\n\n\n\n\n\n\n\nGetting JSON out of contracts is easy. Proving it’s right is the project.\n\n\nAn LLM pipeline for legal contracts, scored field by field against CUAD expert labels\n\n\n\nLLM\n\nevaluation\n\nstructured-output\n\nDuckDB\n\n\n\nPDF to Markdown to typed record to DuckDB, with precision and recall per field. What the numbers said, and why the honest ones are the interesting ones.\n\n\n\n\n\nOct 12, 2026\n\n\nSantosh Kumar Panda\n\n\n\n\n\nNo matching items"
   },
   {
     "objectID": "posts/doc-intel-contract-extraction/index.html",

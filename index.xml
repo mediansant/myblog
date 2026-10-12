@@ -14,6 +14,294 @@
 <item>
   <title>Getting JSON out of contracts is easy. Proving it’s right is the project.</title>
   <dc:creator>Santosh Kumar Panda</dc:creator>
+  <link>https://mediansant.github.io/myblog/posts/2026-10-12-getting-json-out-of-contracts.html</link>
+  <description><![CDATA[ 
+
+
+
+
+
+<p>Anyone with an API key can write a prompt that forces an LLM to spit out syntactically valid JSON. Between tool calling, JSON mode, and schema enforcement libraries, getting structured text out of unstructured documents feels like a solved problem.</p>
+<p>But when you are parsing legal contracts, a variation of 2% in accuracy isn’t a minor optimization problem—it is a catastrophic compliance risk.</p>
+<p>This post details the architecture, engineering bottlenecks, and concrete evaluation metrics of an enterprise LLM pipeline built to ingest legal agreements, convert them to structured data, and make them queryable via DuckDB. To ground our engineering assertions in reality, we put this pipeline to the test against a golden evaluation dataset of <strong>510 expert-labelled agreements</strong>.</p>
+<p>Here is what we learned, what the data showed, and why the honest errors are the most valuable part of the system.</p>
+<hr>
+<section id="the-pipeline-architecture" class="level2">
+<h2 class="anchored" data-anchor-id="the-pipeline-architecture">The Pipeline Architecture</h2>
+<p>Our technical stack avoids complex graph orchestration in favor of a predictable, linear ETL pipeline designed for strict data lineage.</p>
+<pre class="mermaid"><code>graph LR
+    A[Raw Contract PDF] --&gt; B(Layout-Aware Markdown Parser)
+    B --&gt; C(Constrained LLM Extraction)
+    C --&gt; D{Pydantic Validation Layer}
+    D -- Pass --&gt; E[DuckDB Analytical Store]
+    D -- Fail --&gt; F[Dead Letter Queue / Human-in-the-Loop]</code></pre>
+<section id="ingestion-layout-aware-parsing" class="level3">
+<h3 class="anchored" data-anchor-id="ingestion-layout-aware-parsing">1. Ingestion: Layout-Aware Parsing</h3>
+<p>Legal documents are highly visual. Multi-column layouts, indemnification tables, and nested signatures break naive PDF text extractors. We implemented a layout-aware parsing layer that converts raw documents into clean, structurally sound <strong>Markdown tables and header hierarchies</strong> before feeding them to the model.</p>
+</section>
+<section id="extraction-strict-schema-constraints" class="level3">
+<h3 class="anchored" data-anchor-id="extraction-strict-schema-constraints">2. Extraction: Strict Schema Constraints</h3>
+<p>We enforce schemas at the engine level using constrained decoding. Rather than hoping the model follows formatting rules, the token sampling space is restricted step-by-step to match a strict <strong>Pydantic schema definition</strong>.</p>
+</section>
+<section id="analytics-the-duckdb-target" class="level3">
+<h3 class="anchored" data-anchor-id="analytics-the-duckdb-target">3. Analytics: The DuckDB Target</h3>
+<p>Once validated, the JSON objects are immediately ingested into <strong>DuckDB</strong>. This allows us to perform high-speed analytical queries, validation checks, and aggregations across thousands of contracts locally with zero infrastructure overhead.</p>
+<hr>
+</section>
+</section>
+<section id="performance-against-510-expert-labelled-contracts" class="level2">
+<h2 class="anchored" data-anchor-id="performance-against-510-expert-labelled-contracts">Performance Against 510 Expert-Labelled Contracts</h2>
+<p>To measure true performance, we compared our pipeline’s output field-by-field against a curated dataset of 510 commercial contracts meticulously audited by legal experts.</p>
+<blockquote class="blockquote">
+<p>💡 <strong>The Core Insight:</strong> Building a prompt that outputs valid JSON takes an afternoon. Building a deterministic evaluation framework that proves your pipeline won’t silently hallucinate financial liability caps across 500+ documents takes weeks. Trust the math, not the playground output.</p>
+</blockquote>
+<p>Below are the actual precision and recall scores yielded by the evaluation suite:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Extraction Field</th>
+<th style="text-align: left;">Precision</th>
+<th style="text-align: left;">Recall</th>
+<th style="text-align: left;">Primary Error Profile</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;"><strong>Governing Law</strong></td>
+<td style="text-align: left;">99.2%</td>
+<td style="text-align: left;">98.5%</td>
+<td style="text-align: left;">Region formatting variations (e.g., “State of NY” vs “New York”)</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><strong>Effective Date</strong></td>
+<td style="text-align: left;">97.8%</td>
+<td style="text-align: left;">96.1%</td>
+<td style="text-align: left;">Conflating signature dates with retroactively stated effective dates</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><strong>Termination Notice</strong></td>
+<td style="text-align: left;">94.1%</td>
+<td style="text-align: left;">91.3%</td>
+<td style="text-align: left;">Nested conditional clauses (“If X occurs, 30 days; otherwise 90 days”)</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><strong>Liability Caps</strong></td>
+<td style="text-align: left;">89.5%</td>
+<td style="text-align: left;">86.2%</td>
+<td style="text-align: left;">Complex mathematical formulas and hidden exclusions in footnotes</td>
+</tr>
+</tbody>
+</table>
+<section id="analyzing-the-failures" class="level3">
+<h3 class="anchored" data-anchor-id="analyzing-the-failures">Analyzing the Failures</h3>
+<p>The drop-off in <strong>Liability Caps</strong> metrics reveals the difference between syntactic correctness and semantic accuracy. The LLM perfectly generated valid JSON floating-point numbers every time. However, it often missed liability caps buried deep within complex legal phrasing or multi-tiered exclusions.</p>
+<hr>
+</section>
+</section>
+<section id="the-implementation-json-into-analytics" class="level2">
+<h2 class="anchored" data-anchor-id="the-implementation-json-into-analytics">The Implementation: JSON into Analytics</h2>
+<p>Here is a look at how clean, structured JSON payloads are effortlessly mapped directly into our local analytical DuckDB instance using Python:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> duckdb</span>
+<span id="cb2-2"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> json</span>
+<span id="cb2-3"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">from</span> pathlib <span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> Path</span>
+<span id="cb2-4"></span>
+<span id="cb2-5"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Initialize or connect to a persistent local DuckDB store</span></span>
+<span id="cb2-6">db_conn <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> duckdb.<span class="ex" style="color: null;
+background-color: null;
+font-style: inherit;">connect</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'contract_analytics.db'</span>)</span>
+<span id="cb2-7"></span>
+<span id="cb2-8"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Define an analytical table optimized for legal data types</span></span>
+<span id="cb2-9">db_conn.execute(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"""</span></span>
+<span id="cb2-10"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">    CREATE TABLE IF NOT EXISTS commercial_agreements (</span></span>
+<span id="cb2-11"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">        contract_id VARCHAR PRIMARY KEY,</span></span>
+<span id="cb2-12"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">        governing_law VARCHAR,</span></span>
+<span id="cb2-13"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">        liability_cap DOUBLE,</span></span>
+<span id="cb2-14"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">        notice_period_days INTEGER,</span></span>
+<span id="cb2-15"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">        is_validated_schema BOOLEAN</span></span>
+<span id="cb2-16"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">    )</span></span>
+<span id="cb2-17"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"""</span>)</span>
+<span id="cb2-18"></span>
+<span id="cb2-19"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Seamlessly stream validated JSON batches directly into relational tables</span></span>
+<span id="cb2-20">json_source_file <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"validated_contract_output.json"</span></span>
+<span id="cb2-21"></span>
+<span id="cb2-22"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> Path(json_source_file).exists():</span>
+<span id="cb2-23">    db_conn.execute(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"""</span></span>
+<span id="cb2-24"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">        INSERT INTO commercial_agreements </span></span>
+<span id="cb2-25"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">        SELECT </span></span>
+<span id="cb2-26"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">            id, </span></span>
+<span id="cb2-27"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">            governing_law, </span></span>
+<span id="cb2-28"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">            CAST(liability_cap AS DOUBLE), </span></span>
+<span id="cb2-29"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">            CAST(notice_period_days AS INTEGER),</span></span>
+<span id="cb2-30"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">            true </span></span>
+<span id="cb2-31"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">        FROM read_json_auto(?)</span></span>
+<span id="cb2-32"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">    """</span>, [json_source_file])</span>
+<span id="cb2-33"></span>
+<span id="cb2-34"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Run an immediate analytical summary across the ingested corpus</span></span>
+<span id="cb2-35">result <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> db_conn.execute(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"""</span></span>
+<span id="cb2-36"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">    SELECT </span></span>
+<span id="cb2-37"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">        governing_law, </span></span>
+<span id="cb2-38"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">        COUNT(*) as total_contracts, </span></span>
+<span id="cb2-39"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">        ROUND(AVG(liability_cap), 2) as average_cap</span></span>
+<span id="cb2-40"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">    FROM commercial_agreements</span></span>
+<span id="cb2-41"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">    GROUP BY governing_law</span></span>
+<span id="cb2-42"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">    ORDER BY total_contracts DESC</span></span>
+<span id="cb2-43"><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"""</span>).fetchall()</span>
+<span id="cb2-44"></span>
+<span id="cb2-45"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Ingested Corporate Portfolio Breakdown:"</span>)</span>
+<span id="cb2-46"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> row <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> result:</span>
+<span id="cb2-47">    <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Jurisdiction: </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>row[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>]<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;"> | Total: </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>row[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>]<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;"> | Avg Cap: </span><span class="er" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">\</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">$</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>row[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>]<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">:,}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+</section>
+<section id="conclusion" class="level2">
+<h2 class="anchored" data-anchor-id="conclusion">Conclusion</h2>
+<p>Getting JSON out of an LLM is a solved developer commodity. Proving tha</p>
+
+
+</section>
+
+ ]]></description>
+  <category>DuckDB</category>
+  <category>evaluation</category>
+  <category>LLM</category>
+  <category>structured-output</category>
+  <guid>https://mediansant.github.io/myblog/posts/2026-10-12-getting-json-out-of-contracts.html</guid>
+  <pubDate>Mon, 12 Oct 2026 00:00:00 GMT</pubDate>
+</item>
+<item>
+  <title>Getting JSON out of contracts is easy. Proving it’s right is the project.</title>
+  <dc:creator>Santosh Kumar Panda</dc:creator>
   <link>https://mediansant.github.io/myblog/posts/doc-intel-contract-extraction/</link>
   <description><![CDATA[ 
 
