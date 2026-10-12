@@ -7,11 +7,39 @@
     "text": "I build and evaluate LLM systems. This blog collects write-ups of projects, with an emphasis on measuring whether the output is actually right."
   },
   {
+    "objectID": "posts/2026-10-12-getting-json-out-of-contracts.html",
+    "href": "posts/2026-10-12-getting-json-out-of-contracts.html",
+    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
+    "section": "",
+    "text": "An LLM pipeline for legal contracts, scored field by field against 510 expert-labelled agreements.\nPDF to Markdown to typed record to DuckDB, with precision and recall per field. What the numbers said, and why the honest ones are the interesting ones."
+  },
+  {
+    "objectID": "posts/2026-10-12-getting-json-out-of-contracts.html#introduction",
+    "href": "posts/2026-10-12-getting-json-out-of-contracts.html#introduction",
+    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
+    "section": "Introduction",
+    "text": "Introduction\nExtracting structured data from complex legal text seems straightforward with modern LLMs and tool calling features. However, moving from a proof-of-concept to a production-grade system requires rigorous engineering and comprehensive evaluation."
+  },
+  {
+    "objectID": "posts/2026-10-12-getting-json-out-of-contracts.html#the-pipeline-architecture",
+    "href": "posts/2026-10-12-getting-json-out-of-contracts.html#the-pipeline-architecture",
+    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
+    "section": "The Pipeline Architecture",
+    "text": "The Pipeline Architecture\nOur ingestion architecture follows a predictable, reproducible sequence: 1. PDF to Markdown Conversion: Parsing unstructured layouts into standardized markdown text. 2. Typed Record Extraction: Using structured JSON outputs constrained by strict Pydantic schemas. 3. Analytical Data Store: Loading the validated records directly into DuckDB for fast relational querying and analysis."
+  },
+  {
+    "objectID": "posts/2026-10-12-getting-json-out-of-contracts.html#evaluation-methodology",
+    "href": "posts/2026-10-12-getting-json-out-of-contracts.html#evaluation-methodology",
+    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
+    "section": "Evaluation Methodology",
+    "text": "Evaluation Methodology\nTo ground our metrics in reality, we established a benchmark baseline utilizing 510 expert-labelled agreements. Every single extracted field was subjected to unit-level scoring across primary criteria:\n\nPrecision: Ensuring the extracted information strictly belongs in the target property without hallucinated details.\nRecall: Measuring how effectively the model captures every relevant clause without missing critical terms.\n\nThe results highlighted a stark contrast between superficially clean outputs and robust data models. It is the edge cases—and the honest failures—that provide the most actionable engineering insights."
+  },
+  {
     "objectID": "index.html",
     "href": "index.html",
     "title": "Santosh Kumar Panda",
     "section": "",
-    "text": "Getting JSON out of contracts is easy. Proving it’s right is the project.\n\n\nAn LLM pipeline for legal contracts, scored field by field against 510 expert-labelled agreements\n\n\n\nLLM\n\nevaluation\n\nstructured-output\n\nDuckDB\n\n\n\nPDF to Markdown to typed record to DuckDB, with precision and recall per field. What the numbers said, and why the honest ones are the interesting ones.\n\n\n\n\n\nOct 12, 2026\n\n\nSantosh Kumar Panda\n\n\n\n\n\nNo matching items"
+    "text": "Getting JSON out of contracts is easy. Proving it’s right is the project.\n\n\n\n\n\n\nDuckDB\n\nevaluation\n\nLLM\n\nstructured-output\n\n\n\nAn LLM pipeline for legal contracts, scored field by field against 510 expert-labelled agreements.\n\n\n\n\n\nOct 12, 2026\n\n\nSantosh Kumar Panda\n\n\n\n\n\n\n\n\n\n\n\n\nGetting JSON out of contracts is easy. Proving it’s right is the project.\n\n\nAn LLM pipeline for legal contracts, scored field by field against 510 expert-labelled agreements\n\n\n\nLLM\n\nevaluation\n\nstructured-output\n\nDuckDB\n\n\n\nPDF to Markdown to typed record to DuckDB, with precision and recall per field. What the numbers said, and why the honest ones are the interesting ones.\n\n\n\n\n\nOct 12, 2026\n\n\nSantosh Kumar Panda\n\n\n\n\n\nNo matching items"
   },
   {
     "objectID": "posts/doc-intel-contract-extraction/index.html",

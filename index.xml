@@ -14,6 +14,47 @@
 <item>
   <title>Getting JSON out of contracts is easy. Proving it’s right is the project.</title>
   <dc:creator>Santosh Kumar Panda</dc:creator>
+  <link>https://mediansant.github.io/myblog/posts/2026-10-12-getting-json-out-of-contracts.html</link>
+  <description><![CDATA[ 
+
+
+
+
+
+<p>An LLM pipeline for legal contracts, scored field by field against 510 expert-labelled agreements.</p>
+<p>PDF to Markdown to typed record to DuckDB, with precision and recall per field. What the numbers said, and why the honest ones are the interesting ones.</p>
+<!-- Add your full article body below -->
+<section id="introduction" class="level2">
+<h2 class="anchored" data-anchor-id="introduction">Introduction</h2>
+<p>Extracting structured data from complex legal text seems straightforward with modern LLMs and tool calling features. However, moving from a proof-of-concept to a production-grade system requires rigorous engineering and comprehensive evaluation.</p>
+</section>
+<section id="the-pipeline-architecture" class="level2">
+<h2 class="anchored" data-anchor-id="the-pipeline-architecture">The Pipeline Architecture</h2>
+<p>Our ingestion architecture follows a predictable, reproducible sequence: 1. <strong>PDF to Markdown Conversion:</strong> Parsing unstructured layouts into standardized markdown text. 2. <strong>Typed Record Extraction:</strong> Using structured JSON outputs constrained by strict Pydantic schemas. 3. <strong>Analytical Data Store:</strong> Loading the validated records directly into DuckDB for fast relational querying and analysis.</p>
+</section>
+<section id="evaluation-methodology" class="level2">
+<h2 class="anchored" data-anchor-id="evaluation-methodology">Evaluation Methodology</h2>
+<p>To ground our metrics in reality, we established a benchmark baseline utilizing <strong>510 expert-labelled agreements</strong>. Every single extracted field was subjected to unit-level scoring across primary criteria:</p>
+<ul>
+<li><strong>Precision:</strong> Ensuring the extracted information strictly belongs in the target property without hallucinated details.</li>
+<li><strong>Recall:</strong> Measuring how effectively the model captures every relevant clause without missing critical terms.</li>
+</ul>
+<p>The results highlighted a stark contrast between superficially clean outputs and robust data models. It is the edge cases—and the honest failures—that provide the most actionable engineering insights.</p>
+
+
+</section>
+
+ ]]></description>
+  <category>DuckDB</category>
+  <category>evaluation</category>
+  <category>LLM</category>
+  <category>structured-output</category>
+  <guid>https://mediansant.github.io/myblog/posts/2026-10-12-getting-json-out-of-contracts.html</guid>
+  <pubDate>Mon, 12 Oct 2026 00:00:00 GMT</pubDate>
+</item>
+<item>
+  <title>Getting JSON out of contracts is easy. Proving it’s right is the project.</title>
+  <dc:creator>Santosh Kumar Panda</dc:creator>
   <link>https://mediansant.github.io/myblog/posts/doc-intel-contract-extraction/</link>
   <description><![CDATA[ 
 
