@@ -2,7 +2,7 @@
 title: "My scorer gave a perfect extractor 0 out of 6"
 description: "What building an LLM contract-extraction pipeline taught me about evaluation: ten ways my eval lied, and why the model was rarely the problem."
 author: "Santosh Kumar Panda"
-date: "2026-10-20"
+date: "2026-10-12"
 categories: [llm, evals, document-ai]
 image: card.png
 ---
