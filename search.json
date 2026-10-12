@@ -7,39 +7,11 @@
     "text": "I build and evaluate LLM systems. This blog collects write-ups of projects, with an emphasis on measuring whether the output is actually right."
   },
   {
-    "objectID": "posts/2026-10-12-getting-json-out-of-contracts.html",
-    "href": "posts/2026-10-12-getting-json-out-of-contracts.html",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "",
-    "text": "An LLM pipeline for legal contracts, scored field by field against 510 expert-labelled agreements.\nPDF to Markdown to typed record to DuckDB, with precision and recall per field. What the numbers said, and why the honest ones are the interesting ones."
-  },
-  {
-    "objectID": "posts/2026-10-12-getting-json-out-of-contracts.html#introduction",
-    "href": "posts/2026-10-12-getting-json-out-of-contracts.html#introduction",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "Introduction",
-    "text": "Introduction\nExtracting structured data from complex legal text seems straightforward with modern LLMs and tool calling features. However, moving from a proof-of-concept to a production-grade system requires rigorous engineering and comprehensive evaluation."
-  },
-  {
-    "objectID": "posts/2026-10-12-getting-json-out-of-contracts.html#the-pipeline-architecture",
-    "href": "posts/2026-10-12-getting-json-out-of-contracts.html#the-pipeline-architecture",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "The Pipeline Architecture",
-    "text": "The Pipeline Architecture\nOur ingestion architecture follows a predictable, reproducible sequence: 1. PDF to Markdown Conversion: Parsing unstructured layouts into standardized markdown text. 2. Typed Record Extraction: Using structured JSON outputs constrained by strict Pydantic schemas. 3. Analytical Data Store: Loading the validated records directly into DuckDB for fast relational querying and analysis."
-  },
-  {
-    "objectID": "posts/2026-10-12-getting-json-out-of-contracts.html#evaluation-methodology",
-    "href": "posts/2026-10-12-getting-json-out-of-contracts.html#evaluation-methodology",
-    "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
-    "section": "Evaluation Methodology",
-    "text": "Evaluation Methodology\nTo ground our metrics in reality, we established a benchmark baseline utilizing 510 expert-labelled agreements. Every single extracted field was subjected to unit-level scoring across primary criteria:\n\nPrecision: Ensuring the extracted information strictly belongs in the target property without hallucinated details.\nRecall: Measuring how effectively the model captures every relevant clause without missing critical terms.\n\nThe results highlighted a stark contrast between superficially clean outputs and robust data models. It is the edge cases—and the honest failures—that provide the most actionable engineering insights."
-  },
-  {
     "objectID": "index.html",
     "href": "index.html",
     "title": "Santosh Kumar Panda",
     "section": "",
-    "text": "Getting JSON out of contracts is easy. Proving it’s right is the project.\n\n\n\n\n\n\nDuckDB\n\nevaluation\n\nLLM\n\nstructured-output\n\n\n\nAn LLM pipeline for legal contracts, scored field by field against 510 expert-labelled agreements.\n\n\n\n\n\nOct 12, 2026\n\n\nSantosh Kumar Panda\n\n\n\n\n\n\n\n\n\n\n\n\nGetting JSON out of contracts is easy. Proving it’s right is the project.\n\n\nAn LLM pipeline for legal contracts, scored field by field against 510 expert-labelled agreements\n\n\n\nLLM\n\nevaluation\n\nstructured-output\n\nDuckDB\n\n\n\nPDF to Markdown to typed record to DuckDB, with precision and recall per field. What the numbers said, and why the honest ones are the interesting ones.\n\n\n\n\n\nOct 12, 2026\n\n\nSantosh Kumar Panda\n\n\n\n\n\nNo matching items"
+    "text": "Getting JSON out of contracts is easy. Proving it’s right is the project.\n\n\nAn LLM pipeline for legal contracts, scored field by field against CUAD expert labels\n\n\n\nLLM\n\nevaluation\n\nstructured-output\n\nDuckDB\n\n\n\nPDF to Markdown to typed record to DuckDB, with precision and recall per field. What the numbers said, and why the honest ones are the interesting ones.\n\n\n\n\n\nOct 12, 2026\n\n\nSantosh Kumar Panda\n\n\n\n\n\nNo matching items"
   },
   {
     "objectID": "posts/doc-intel-contract-extraction/index.html",
@@ -53,7 +25,7 @@
     "href": "posts/doc-intel-contract-extraction/index.html#the-problem-is-not-extraction",
     "title": "Getting JSON out of contracts is easy. Proving it’s right is the project.",
     "section": "The problem is not extraction",
-    "text": "The problem is not extraction\nAnyone can ask an LLM for JSON. The hard question is the one that comes after: is the JSON right?\nSo this project is built around that question rather than around the extraction itself:\n\n\n\n\n\n\n\nPrinciple\nHow it shows up\n\n\n\n\nTyped output\nEvery field lives in a Pydantic schema, and each value carries a verbatim evidence quote a reviewer can check against the contract.\n\n\nGround truth\nResults are scored against 510 CUAD contracts, per field, as precision and recall.\n\n\nReproducible runs\nEach run is stored with its model, prompt hash and schema version, so “did prompt v2 beat v1?” is a SQL query, not a guess.\n\n\nCheap to change\nExtraction is exposed as an API with caching. The eval harness runs offline against saved outputs."
+    "text": "The problem is not extraction\nAnyone can ask an LLM for JSON. The hard question is the one that comes after: is the JSON right?\nSo this project is built around that question rather than around the extraction itself:\n\n\n\n\n\n\n\nPrinciple\nHow it shows up\n\n\n\n\nTyped output\nEvery field lives in a Pydantic schema, and each value carries a verbatim evidence quote a reviewer can check against the contract.\n\n\nGround truth\nResults are scored against CUAD expert labels (510 labelled contracts available, 20 scored so far), per field, as precision and recall.\n\n\nReproducible runs\nEach run is stored with its model, prompt hash and schema version, so “did prompt v2 beat v1?” is a SQL query, not a guess.\n\n\nCheap to change\nExtraction is exposed as an API with caching. The eval harness runs offline against saved outputs."
   },
   {
     "objectID": "posts/doc-intel-contract-extraction/index.html#what-gets-extracted",
