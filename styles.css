@@ -1,1 +1,109 @@
-/* css styles */
+/* Shared rules for both themes. Colours come from the --di-* tokens in theme-light.scss / theme-dark.scss. */
+
+/* ---------- Typography ---------- */
+h1, h2, h3, h4, .title, .navbar-brand, .listing-title, .quarto-title-meta-heading, .sidebar nav[role="doc-toc"] {
+  font-family: var(--di-display);
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+h1.title { font-weight: 800; letter-spacing: -0.02em; }
+h2 { margin-top: 2.4rem; }
+.navbar-brand { font-weight: 700; }
+.navbar .nav-link, .quarto-title-meta, .listing-date, .listing-categories, .page-footer {
+  font-family: var(--di-display);
+}
+mark { background: var(--di-mark); color: var(--di-mark-ink); padding: 0 .15em; border-radius: 2px; }
+code { font-size: .88em; }
+.figure-caption, figcaption { color: var(--di-muted); font-size: .9rem; }
+
+/* Title banner: ink on paper with a single accent rule, instead of a solid colour block */
+.quarto-title-banner {
+  background: var(--di-paper) !important;
+  color: var(--di-ink) !important;
+  border-bottom: 2px solid var(--di-ink);
+}
+.quarto-title-banner .title, .quarto-title-banner .description, .quarto-title-banner .subtitle { color: var(--di-ink) !important; }
+.quarto-title-banner .quarto-category {
+  color: var(--di-accent); border: 1px solid var(--di-accent); background: transparent;
+  font-family: var(--di-display); font-size: .72rem; letter-spacing: .06em; text-transform: uppercase;
+}
+
+/* ---------- Post list ---------- */
+.quarto-post { border-bottom: 1px solid var(--di-rule); padding-block: 1.2rem; }
+.quarto-post .listing-title { font-weight: 700; }
+.quarto-post:hover .listing-title { color: var(--di-accent); }
+
+/* ---------- Callouts and tables ---------- */
+.callout { border-radius: 6px; }
+.table { font-size: .93rem; }
+.table th { font-family: var(--di-display); font-size: .8rem; color: var(--di-muted); }
+.table td.num, .table th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--di-mono); font-size: .85rem; }
+
+/* ---------- Inline SVG diagrams ---------- */
+.di-fig { margin: 1.2rem 0 1.6rem; }
+.di-fig .frame { background: var(--di-surface); border: 1px solid var(--di-rule); border-radius: 8px; padding: 14px; overflow-x: auto; color: var(--di-ink); }
+.di-fig svg { display: block; width: 100%; height: auto; min-width: 560px; }
+.di-fig svg text { font-family: var(--di-display); fill: currentColor; }
+.di-fig .t-sm { font-size: 11px; }
+.di-fig .t-md { font-size: 13px; font-weight: 600; }
+.di-fig .t-lg { font-size: 16px; font-weight: 700; }
+.di-fig .t-cap { font-size: 10.5px; letter-spacing: .12em; font-weight: 600; }
+.di-fig .muted { fill: var(--di-muted); }
+.di-fig .box { fill: var(--di-surface); stroke: currentColor; stroke-width: 1.3; }
+.di-fig .box-soft { fill: var(--di-accent-soft); stroke: var(--di-accent); stroke-width: 1.3; }
+.di-fig .box-code { fill: var(--di-code); stroke: var(--di-rule); stroke-width: 1; }
+.di-fig .line { stroke: currentColor; stroke-width: 1.3; fill: none; }
+.di-fig .line-accent { stroke: var(--di-accent); stroke-width: 1.6; fill: none; }
+.di-fig .dash { stroke-dasharray: 5 4; }
+.di-fig .ah { fill: currentColor; }
+.di-fig .ah-accent { fill: var(--di-accent); }
+.di-fig .tp { fill: var(--di-tp); } .di-fig .fp { fill: var(--di-fp); } .di-fig .fn { fill: var(--di-fn); } .di-fig .tn { fill: var(--di-tn); }
+
+/* ---------- Failure explorer ---------- */
+.fx { background: var(--di-surface); border: 1px solid var(--di-rule); border-radius: 10px; padding: 1rem; margin: 1.2rem 0 2rem; color: var(--di-ink); }
+.fx-label { font-family: var(--di-display); font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; color: var(--di-muted); font-weight: 600; margin: 0 0 .4rem; }
+.fx-row { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .9rem; }
+.fx button.chip {
+  font-family: var(--di-display); font-size: .82rem; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--di-rule); background: var(--di-paper); color: var(--di-ink);
+  border-radius: 999px; padding: .28rem .7rem; display: inline-flex; gap: .4rem; align-items: center;
+}
+.fx button.chip:hover { border-color: var(--di-accent); }
+.fx button.chip[aria-pressed="true"] { background: var(--di-accent); border-color: var(--di-accent); color: var(--di-surface); }
+.fx button.chip .n { font-family: var(--di-mono); font-size: .75rem; opacity: .8; }
+.fx button.chip:focus-visible { outline: 2px solid var(--di-accent); outline-offset: 2px; }
+.fx-bar { display: flex; height: 14px; border-radius: 4px; overflow: hidden; background: var(--di-code); margin: .2rem 0 .4rem; }
+.fx-bar span { display: block; height: 100%; transition: width .35s ease; }
+@media (prefers-reduced-motion: reduce) { .fx-bar span { transition: none; } }
+.fx-legend { display: flex; flex-wrap: wrap; gap: .3rem 1rem; font-family: var(--di-display); font-size: .78rem; color: var(--di-muted); margin-bottom: 1rem; }
+.fx-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: .35rem; vertical-align: -1px; }
+.fx-summary { font-family: var(--di-display); font-size: .9rem; margin: 0 0 .8rem; }
+.fx-list { display: grid; gap: .6rem; max-height: 34rem; overflow-y: auto; padding-right: .2rem; }
+.fx-card { border: 1px solid var(--di-rule); border-left: 4px solid var(--di-muted); border-radius: 6px; padding: .65rem .85rem; background: var(--di-paper); min-width: 0; }
+.fx-card[data-bucket="Definition"] { border-left-color: var(--di-accent); }
+.fx-card[data-bucket="Schema"] { border-left-color: var(--di-fn); }
+.fx-card[data-bucket="Label noise"] { border-left-color: var(--di-tn); }
+.fx-card[data-bucket="Model"] { border-left-color: var(--di-fp); }
+.fx-head { display: flex; flex-wrap: wrap; gap: .3rem .6rem; align-items: baseline; margin-bottom: .35rem; }
+.fx-head b { font-family: var(--di-display); font-size: .95rem; }
+.fx-field { font-family: var(--di-mono); font-size: .75rem; color: var(--di-muted); }
+.fx-tag { font-family: var(--di-mono); font-size: .7rem; padding: .05rem .35rem; border-radius: 3px; color: var(--di-surface); }
+.fx-tag.FP { background: var(--di-fp); } .fx-tag.FN { background: var(--di-fn); } .fx-tag.TP { background: var(--di-tp); }
+.fx-bucket { margin-left: auto; font-family: var(--di-display); font-size: .72rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--di-muted); }
+.fx-kv { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: .15rem .6rem; font-size: .88rem; }
+.fx-kv dt { font-family: var(--di-display); font-size: .75rem; color: var(--di-muted); padding-top: .15rem; }
+.fx-kv dd { margin: 0; font-family: var(--di-mono); font-size: .78rem; overflow-wrap: anywhere; }
+.fx-kv dd.ev { font-family: inherit; font-style: italic; font-size: .86rem; }
+.fx-items { display: flex; flex-wrap: wrap; gap: .25rem; }
+.fx-items span { font-family: var(--di-mono); font-size: .72rem; border-radius: 3px; padding: .02rem .35rem; border: 1px solid var(--di-rule); }
+.fx-items .hit { border-color: var(--di-tp); color: var(--di-tp); }
+.fx-items .miss { border-color: var(--di-fn); color: var(--di-fn); }
+.fx-items .extra { border-color: var(--di-fp); color: var(--di-fp); }
+.fx-note { font-size: .86rem; color: var(--di-muted); margin: .4rem 0 0; }
+.fx-empty { color: var(--di-muted); font-style: italic; }
+@media (max-width: 560px) { .fx-kv { grid-template-columns: minmax(0, 1fr); } .fx-bucket { margin-left: 0; } }
+
+/* Wide tables scroll inside themselves on phones instead of widening the page */
+@media (max-width: 767.98px) {
+  #quarto-document-content table { display: block; overflow-x: auto; max-width: 100%; }
+}

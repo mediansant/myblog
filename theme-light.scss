@@ -1,0 +1,40 @@
+/*-- scss:defaults --*/
+// Palette: cool paper, ink text, ink-blue accent, highlighter for emphasis.
+$body-bg: #F3F5F8;
+$body-color: #17212D;
+$primary: #2A53C4;
+$secondary: #586375;
+$link-color: #2A53C4;
+$border-color: #D6DCE4;
+$navbar-bg: #F3F5F8;
+$navbar-fg: #17212D;
+$footer-bg: #F3F5F8;
+$code-color: #17212D;
+
+$font-family-sans-serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+$headings-font-family: "Archivo", "Helvetica Neue", Arial, sans-serif;
+$font-family-monospace: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+$headings-font-weight: 700;
+$font-size-root: 17px;
+$line-height-base: 1.6;
+
+/*-- scss:rules --*/
+// Tokens shared with styles.css. theme-dark.scss defines the same names.
+:root {
+  --di-paper: #F3F5F8;
+  --di-surface: #FFFFFF;
+  --di-ink: #17212D;
+  --di-muted: #586375;
+  --di-rule: #D6DCE4;
+  --di-accent: #2A53C4;
+  --di-accent-soft: #E5EBFA;
+  --di-mark: #FFE17C;
+  --di-mark-ink: #17212D;
+  --di-code: #ECEFF4;
+  --di-tp: #2D7A4E;
+  --di-fp: #BE3B2E;
+  --di-fn: #A9701A;
+  --di-tn: #758092;
+  --di-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --di-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

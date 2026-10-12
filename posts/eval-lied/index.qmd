@@ -1,0 +1,183 @@
+---
+title: "My scorer gave a perfect extractor 0 out of 6"
+description: "What building an LLM contract-extraction pipeline taught me about evaluation: ten ways my eval lied, and why the model was rarely the problem."
+author: "Santosh Kumar Panda"
+date: "2026-10-20"
+categories: [llm, evals, document-ai]
+image: card.png
+---
+
+The first time I scored my contract extractor, it got zero out of six fields right on the first contract.
+
+Every one of the six was correct.
+
+The model had done its job. My scorer hadn't. That moment set the theme for the whole project: when you build with LLMs, the evaluation is code too, and a wrong eval is worse than no eval, because it sends you off "fixing" a prompt that isn't broken.
+
+This post covers what I built, the ten ways my eval lied to me, what the real numbers looked like once it stopped lying, and why most failures weren't the model's fault. You can explore every failure yourself further down.
+
+## The setup
+
+The task: take messy commercial contracts in, and return clean, structured JSON records out, with quality measured per field.
+
+I used [CUAD](https://www.atticusprojectai.org/cuad), a public set of commercial contracts from SEC filings, labelled by legal experts. Having labels from day one meant I could measure from the start instead of eyeballing outputs.
+
+I picked six fields that cover different types, because each type needs its own way of deciding "is this right?":
+
+| Field | Type | What makes it hard |
+|---|---|---|
+| Parties | List of entities | Aliases ("MBE", "the Company"), partial matches |
+| Agreement date | Date | Formats, blanks like "March ___, 1999" |
+| Governing law | Jurisdiction | "Ontario" vs "Ontario, Canada" |
+| Renewal term | Duration | "twelve (12) months each" vs "successive 1 year" |
+| Cap on liability | Yes / no | The definition is broader than it sounds |
+| Non-compete | Yes / no | Overlaps with exclusivity clauses |
+
+The pipeline is deliberately simple:
+
+```{=html}
+<figure class="di-fig"><div class="frame">
+<svg viewBox="0 0 1000 300" role="img" aria-label="Runtime path: PDF to Docling to markdown, to an LLM with a Pydantic schema, to a validated JSON record, saved append-only. Eval loop: the scorer reads saved runs and CUAD labels, produces metrics and failure causes, and one change at a time feeds back into extraction.">
+  <defs>
+    <marker id="ah-p1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-p1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-accent" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+  <text x="20" y="30" class="t-cap muted">EXTRACTION</text>
+  <rect class="box" x="20" y="48" width="130" height="58" rx="6"/><text x="85" y="73" class="t-md" text-anchor="middle">Contract PDF</text><text x="85" y="91" class="t-sm muted" text-anchor="middle">SEC filing</text>
+  <rect class="box" x="215" y="48" width="130" height="58" rx="6"/><text x="280" y="73" class="t-md" text-anchor="middle">Docling</text><text x="280" y="91" class="t-sm muted" text-anchor="middle">parse to markdown</text>
+  <rect class="box-soft" x="410" y="48" width="160" height="58" rx="6"/><text x="490" y="73" class="t-md" text-anchor="middle">LLM + schema</text><text x="490" y="91" class="t-sm muted" text-anchor="middle">structured outputs</text>
+  <rect class="box" x="635" y="48" width="130" height="58" rx="6"/><text x="700" y="73" class="t-md" text-anchor="middle">Pydantic</text><text x="700" y="91" class="t-sm muted" text-anchor="middle">validate</text>
+  <rect class="box" x="830" y="48" width="150" height="58" rx="6"/><text x="905" y="73" class="t-md" text-anchor="middle">Saved run</text><text x="905" y="91" class="t-sm muted" text-anchor="middle">one JSON per contract</text>
+  <line class="line" x1="150" y1="77" x2="213" y2="77" marker-end="url(#ah-p1)"/>
+  <line class="line" x1="345" y1="77" x2="408" y2="77" marker-end="url(#ah-p1)"/><text x="377" y="69" class="t-sm" text-anchor="middle">markdown</text>
+  <line class="line" x1="570" y1="77" x2="633" y2="77" marker-end="url(#ah-p1)"/><text x="602" y="69" class="t-sm" text-anchor="middle">JSON</text>
+  <line class="line" x1="765" y1="77" x2="828" y2="77" marker-end="url(#ah-p1)"/><text x="797" y="69" class="t-sm" text-anchor="middle">record</text>
+  <text x="20" y="176" class="t-cap muted">EVALUATION (OFFLINE)</text>
+  <text x="20" y="214" class="t-sm muted">Rescoring reads saved runs, so fixing</text>
+  <text x="20" y="230" class="t-sm muted">the scorer costs no API calls.</text>
+  <rect class="box-soft" x="410" y="196" width="160" height="58" rx="6"/><text x="490" y="221" class="t-md" text-anchor="middle">Change one thing</text><text x="490" y="239" class="t-sm muted" text-anchor="middle">prompt or schema</text>
+  <rect class="box" x="635" y="196" width="130" height="58" rx="6"/><text x="700" y="221" class="t-md" text-anchor="middle">Metrics</text><text x="700" y="239" class="t-sm muted" text-anchor="middle">+ failure causes</text>
+  <rect class="box" x="830" y="196" width="150" height="58" rx="6"/><text x="905" y="221" class="t-md" text-anchor="middle">Scorer</text><text x="905" y="239" class="t-sm muted" text-anchor="middle">vs CUAD labels</text>
+  <line class="line" x1="905" y1="106" x2="905" y2="194" marker-end="url(#ah-p1)"/><text x="915" y="156" class="t-sm">rescore</text>
+  <line class="line" x1="830" y1="225" x2="767" y2="225" marker-end="url(#ah-p1)"/><text x="798" y="217" class="t-sm" text-anchor="middle">counts</text>
+  <line class="line" x1="635" y1="225" x2="572" y2="225" marker-end="url(#ah-p1)"/><text x="603" y="217" class="t-sm" text-anchor="middle">causes</text>
+  <line class="line-accent dash" x1="490" y1="196" x2="490" y2="108" marker-end="url(#ah-p1a)"/><text x="500" y="156" class="t-sm" style="fill:var(--di-accent)">next run</text>
+</svg></div>
+<figcaption>The extraction path on top, the evaluation loop underneath. Every run is saved, so any two runs can be compared.</figcaption></figure>
+```
+
+Docling turns each PDF into markdown. A Pydantic model defines the record, and OpenAI's structured outputs constrain the model's response to that schema, so I always get valid, typed JSON back. Three schema choices did most of the work:
+
+- **Absence is explicit.** Fields are `str | None` with no default, so the model has to decide "present or not" every time instead of skipping the field.
+- **Every value comes with evidence.** A verbatim quote from the contract, which I can check is really in the source.
+- **The field descriptions are the prompt.** The model reads them, so I wrote them like instructions to a junior paralegal.
+
+One thing to be clear about: structured outputs guarantee the *shape* of the answer, not its truth. A perfectly valid record can still hold the wrong date. That's what the evaluation is for.
+
+## Ten ways my eval lied
+
+Here's the full list. Every one of these produced output that looked plausible, which is exactly what made them dangerous.
+
+1. **I compared against the wrong column.** CUAD has a raw clause-text column and a normalised answer column for each field. I scored against the raw text, so "Delaware" never matched a full sentence about Delaware law.
+2. **I used exact string equality for every field.** "2007-04-06" doesn't equal "April 6, 2007".
+3. **"Absent" had five spellings.** `None`, `NaN`, `""`, `[]` and `False` all mean "not in the contract", but they didn't compare equal to each other, so correct absences were marked wrong.
+4. **A column lookup silently missed.** I searched for a column starting with "party". The column is called "Parties". The ground truth for parties was empty for all twenty contracts.
+5. **True negatives counted as hits.** When both the model and the label said "no", my code counted a true positive. That inflated recall on the two yes/no fields.
+6. **Wrong values only counted as misses.** If the model said Illinois and the label said New York, I counted a false negative but not a false positive, so precision showed a perfect 1.00 alongside three wrong answers.
+7. **The join between outputs and labels was a substring match.** A filename ending "...Agreement" could match one ending "...Agreement3" and score a contract against another contract's labels.
+8. **Contracts were dropped silently.** A `continue` skipped contracts while the header still said "20 contracts".
+9. **My name cleaning merged entities.** Stripping everything in brackets turned "TOM Online (BVI) Limited" into "tom online limited".
+10. **I read a stale results file.** An old output got re-shared as new. The numbers looked familiar because they were the old ones.
+
+The fixes are boring, and that's the point. One matcher per field type. One function that decides what "absent" means. An explicit map from field to column that raises an error if a column is missing. Exact joins. A check that every field's outcomes add up to the number of contracts scored. And unit tests built from the awkward real values I'd just been burned by.
+
+## What I measure now
+
+Each field in each contract lands in exactly one cell:
+
+```{=html}
+<figure class="di-fig"><div class="frame">
+<svg viewBox="0 0 640 300" role="img" aria-label="Outcome grid. Label present and value extracted: true positive if they match, false positive plus false negative if not. Value extracted but label absent: false positive. Label present but nothing extracted: false negative. Both absent: true negative.">
+  <text x="370" y="26" class="t-cap muted" text-anchor="middle">CUAD LABEL</text>
+  <text x="20" y="52" class="t-cap muted">MODEL &#8595;</text>
+  <text x="245" y="52" class="t-md" text-anchor="middle">present</text>
+  <text x="495" y="52" class="t-md" text-anchor="middle">absent</text>
+  <text x="110" y="118" class="t-md" text-anchor="end">extracted</text><text x="110" y="134" class="t-md" text-anchor="end">a value</text>
+  <text x="110" y="228" class="t-md" text-anchor="end">extracted</text><text x="110" y="244" class="t-md" text-anchor="end">nothing</text>
+  <rect class="box" x="125" y="66" width="240" height="110" rx="4"/><rect class="tp" x="125" y="66" width="6" height="110"/>
+  <text x="145" y="96" class="t-lg" style="fill:var(--di-tp)">TP</text><text x="178" y="96" class="t-sm">if the values match</text>
+  <text x="145" y="132" class="t-lg" style="fill:var(--di-fp)">FP</text><text x="172" y="132" class="t-lg">+</text><text x="186" y="132" class="t-lg" style="fill:var(--di-fn)">FN</text><text x="218" y="132" class="t-sm">if they don't</text>
+  <text x="145" y="160" class="t-sm muted">a wrong value is both</text>
+  <rect class="box" x="375" y="66" width="240" height="110" rx="4"/><rect class="fp" x="375" y="66" width="6" height="110"/>
+  <text x="395" y="96" class="t-lg" style="fill:var(--di-fp)">FP</text><text x="395" y="122" class="t-sm">invented a value</text><text x="395" y="140" class="t-sm muted">hurts precision</text>
+  <rect class="box" x="125" y="184" width="240" height="96" rx="4"/><rect class="fn" x="125" y="184" width="6" height="96"/>
+  <text x="145" y="214" class="t-lg" style="fill:var(--di-fn)">FN</text><text x="145" y="240" class="t-sm">missed a real value</text><text x="145" y="258" class="t-sm muted">hurts recall</text>
+  <rect class="box" x="375" y="184" width="240" height="96" rx="4"/><rect class="tn" x="375" y="184" width="6" height="96"/>
+  <text x="395" y="214" class="t-lg" style="fill:var(--di-tn)">TN</text><text x="395" y="240" class="t-sm">correctly absent</text><text x="395" y="258" class="t-sm muted">in neither formula</text>
+</svg></div>
+<figcaption>Precision is TP / (TP + FP): when it answers, is it right? Recall is TP / (TP + FN): of the real values, how many did it find?</figcaption></figure>
+```
+
+True negatives appear in neither formula on purpose. If a clause is missing from 80% of contracts, a model that always says "not present" scores 80% accuracy and zero recall. Accuracy would make it look good; recall tells the truth.
+
+The core of the scorer is small:
+
+```python
+def classify(ext, truth, matches=exact) -> list[str]:
+    ext_present, truth_present = not is_absent(ext), not is_absent(truth)
+    if not ext_present and not truth_present: return ["TN"]
+    if ext_present and not truth_present:     return ["FP"]
+    if truth_present and not ext_present:     return ["FN"]
+    return ["TP"] if matches(ext, truth) else ["FP", "FN"]
+```
+
+## The real baseline
+
+With the scorer fixed, here's the first honest run on 20 contracts. Parties is scored per party, so its counts don't add up to 20. Support is how many real examples each recall figure rests on.
+
+| Field | TP | FP | FN | TN | Support | Precision | Recall |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| agreement_date | 18 | 2 | 1 | 0 | 19 | 0.90 | 0.95 |
+| governing_law | 18 | 1 | 1 | 1 | 19 | 0.95 | 0.95 |
+| cap_on_liability | 4 | 0 | 14 | 2 | 18 | 1.00 | 0.22 |
+| non_compete | 4 | 1 | 8 | 7 | 12 | 0.80 | 0.33 |
+| parties | 44 | 1 | 47 | 0 | 91 | 0.98 | 0.48 |
+| renewal_term | 1 | 12 | 10 | 7 | 11 | 0.08 | 0.09 |
+
+The pattern is clear: **precision is high almost everywhere.** When the model gives an answer, it's usually right. It fails by not answering, or by answering in a different shape from the label.
+
+::: {.callout-note}
+## Small samples are noisy
+Non-compete recall of 4 out of 12 has a 95% confidence interval of roughly 0.14 to 0.61. One more hit would move it by eight points. Always report the support next to the number.
+:::
+
+## Explore every failure
+
+Here are all 56 failing field–contract pairs from that run, each with my reading of the cause. Filter by field or by cause. For parties, green names were found, amber ones were missed, and red ones were extra.
+
+{{< include _explorer.qmd >}}
+
+## Blame the model last
+
+When I sorted the failures by cause, the picture changed completely:
+
+- **Definition (41):** my field description didn't match what the labellers meant. Cap on liability is the big one: I asked for a monetary cap, and the labellers clearly counted more than that. For parties, the labels include defined short names like "MBE" and even boilerplate like "each a Party", while I asked for legal names only.
+- **Schema (10):** the model found the right clause and returned it in the wrong shape. Nine of the ten renewal-term misses are a full sentence where the label says "successive 1 year".
+- **Label noise (2):** one contract is clearly dated but has an empty date label; another has expiry dates where a duration should be.
+- **Model (3):** an invented day for a blank date, an initial term returned as a renewal term, and one debatable extension clause.
+
+Three genuine model errors out of 56. The rest were me: my scorer, my schema and my definitions. The order I now check failures in is loader, matcher, schema, label noise, and only then the model.
+
+## What I'd do next
+
+- **Rewrite the cap-on-liability and non-compete descriptions** from what the labellers actually marked, then rerun on the same 20 contracts and compare. One change, one rerun.
+- **Restructure renewal term** into a length, a unit and a "successive" flag, so "twelve months each" and "successive 1 year" compare equal.
+- **Decide what a party is**, and either extract aliases too or filter them out of the labels, with the rule written down.
+- **Set aside a held-out test set** before tuning anything, sampled across contract types. My 20-contract sample was mostly one type of agreement, which is its own lesson.
+
+## Takeaways
+
+1. **Your eval is code.** Test it, make it check itself, and distrust any number you haven't traced back to a raw value.
+2. **Definitions beat prompts.** Most of my "model errors" were disagreements about what a field means.
+3. **Precision and recall per field, with support.** One accuracy number would have hidden everything in this post.
+
+*The contracts and labels are from CUAD by The Atticus Project, licensed under CC BY 4.0. Code for this project: [GitHub](https://github.com/mediansant/doc-intel).*

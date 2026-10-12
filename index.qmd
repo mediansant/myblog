@@ -1,6 +1,6 @@
 ---
 title: "Santosh Kumar Panda"
-subtitle: "Notes on building and evaluating LLM systems"
+subtitle: "Building and evaluating LLM systems, measured field by field."
 listing:
   contents: posts
   feed: true
@@ -12,5 +12,3 @@ listing:
 page-layout: full
 title-block-banner: true
 ---
-
-

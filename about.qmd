@@ -8,9 +8,12 @@ about:
       text: LinkedIn
       href: https://www.linkedin.com/in/santosh015
     - icon: github
-      text: Github
+      text: GitHub
       href: https://github.com/mediansant
-
 ---
 
-I build and evaluate LLM systems. This blog collects write-ups of projects, with an emphasis on measuring whether the output is actually right.
+I've spent about 19 years in data platforms and analytics: streaming with Kafka and Flink, processing with Spark, and lakehouse architectures on Apache Iceberg. Lately I've been building with generative AI.
+
+This blog is where I write up the projects I build to learn applied AI properly. Each post covers what I built, how I measured it, what went wrong, and what I'd do differently. The code for every post is on GitHub.
+
+<!-- Edit freely. Add or remove employer names as you prefer; everything here is published. -->

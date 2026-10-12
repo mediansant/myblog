@@ -1,0 +1,191 @@
+```{=html}
+<div class="fx" id="fx" aria-label="Failure explorer">
+  <p class="fx-label">Field</p>
+  <div class="fx-row" id="fx-fields" role="group" aria-label="Filter by field"></div>
+  <p class="fx-label">Cause</p>
+  <div class="fx-row" id="fx-buckets" role="group" aria-label="Filter by cause"></div>
+  <div class="fx-bar" id="fx-bar" aria-hidden="true"></div>
+  <div class="fx-legend" id="fx-legend"></div>
+  <p class="fx-summary" id="fx-summary" aria-live="polite"></p>
+  <div class="fx-list" id="fx-list"></div>
+</div>
+
+<script>
+(function () {
+  // Run 1: every field/contract pair that was not a true positive or true negative.
+  // Buckets are my reading of each failure; "suspected" ones are not yet confirmed against the labels.
+  var BUCKETS = [
+    { id: "Definition", color: "var(--di-accent)", hint: "The field description doesn't match what the labellers marked" },
+    { id: "Schema", color: "var(--di-fn)", hint: "Right clause, wrong shape" },
+    { id: "Label noise", color: "var(--di-tn)", hint: "The label itself looks wrong or odd" },
+    { id: "Model", color: "var(--di-fp)", hint: "A genuine model error" }
+  ];
+  var F = [];
+  function add(field, co, o, bucket, ext, truth, ev, note) {
+    F.push({ field: field, co: co, o: o, bucket: bucket, ext: ext, truth: truth, ev: ev || null, note: note || "" });
+  }
+
+  // agreement_date
+  add("agreement_date", "theglobe.com", ["FP","FN"], "Model", "1999-03-01", "03/[]/1999",
+      "This Co-Branding Agreement (the \"Agreement\") is entered into as of March ___, 1999",
+      "The day is blank in the contract. The model invented the 1st.");
+  add("agreement_date", "PaperExchange", ["FP"], "Label noise", "1999-09-30", "(empty)",
+      "This Co-Branding Agreement (this \"Agreement\") dated September 30, 1999",
+      "The contract is clearly dated, but the label is empty.");
+
+  // governing_law
+  add("governing_law", "Ebix", ["FP","FN"], "Schema", "illinois", "illinois; new york",
+      "governed by the laws of the state where a suit is properly filed ... being either Illinois or New York.",
+      "Two jurisdictions; the field holds only one string.");
+
+  // cap_on_liability: 14 misses
+  ["Ebix","2TheMart","Impresse","RAE Systems","eDiets","theglobe.com","LeadersOnline","mPhase",
+   "Rand Worldwide","Invenda","HealthCentral","TOM Online","MusclePharm","Embark.com"].forEach(function (c) {
+    add("cap_on_liability", c, ["FN"], "Definition", "false", "Yes", null,
+        "Suspected: my description asked for a monetary cap; the labellers' definition is broader.");
+  });
+
+  // non_compete
+  add("non_compete", "Stamps.com", ["FP"], "Definition", "true", "No",
+      "The Company shall not enter into any agreement or arrangement ... with any provider of manifesting or shipping services through non-carrier retail shipping locations.",
+      "Suspected: CUAD likely labels this under its separate Exclusivity category.");
+  ["2TheMart","Impresse","RAE Systems","eDiets","LeadersOnline","Invenda","HealthCentral","Neoforma"].forEach(function (c) {
+    add("non_compete", c, ["FN"], "Definition", "false", "Yes", null,
+        "Suspected: the restriction is worded in a way my description didn't cover.");
+  });
+
+  // parties: scored per party
+  var P = [
+    ["Stamps.com", ["ishipcom inc","mail boxes etc usa inc"], ["ishipcom inc","mail boxes etc usa inc","mailboxes etc usa inc","mbe","company"]],
+    ["Ebix", ["aboutcom inc","ebixcom inc"], ["aboutcom inc","ebixcom inc","about","ebix"]],
+    ["2TheMart", ["iescrow inc","2themartcom inc"], ["iescrow inc","2themartcom inc","iescrow","2themart"]],
+    ["Integrity Media", ["integrity incorporated","time life inc"], ["integrity incorporated","time life inc","integrity","tl","dba time life music"]],
+    ["Impresse", ["verticalnet inc","impresse corporation"], ["verticalnet inc","impresse corporation","verticalnet","impresse"]],
+    ["RAE Systems", ["nettaxi online communities inc","solutions media inc"], ["nettaxi online communities inc","solutions media inc dba spinrecordscom","nettaxi","spinrecordscom or client"]],
+    ["eDiets", ["womencom networks inc","edietscom inc"], ["womencom networks inc","edietscom inc","womencom","ediets"]],
+    ["theglobe.com", ["theglobecom inc","the boxlot company"], ["theglobecom inc","the boxlot company","theglobe","boxlot"]],
+    ["LeadersOnline", ["verticalnet inc","leadersonline inc"], ["verticalnet inc","leadersonline inc","verticalnet","leadersonline"]],
+    ["mPhase", ["lucent technologies inc","mphase technologies inc"], ["lucent technologies inc","mphase technologies inc","lucent","mphase","each individually a party and collectively the parties"]],
+    ["Rand Worldwide", ["dassault systemes","planetcad inc"], ["dassault systemes","planetcad inc","planetcad","andor certain affiliates of dassault systemes"]],
+    ["HealthCentral", ["medialinx interactive lp","healthcentralcom inc"], ["medialinx interactive lp","healthcentralcom inc","mlx","hci"]],
+    ["TOM Online", ["skype communications sa","skype technologies sa","tom online limited","tom online inc","telonline limited"], ["skype communications sa","skype technologies sa","tom online limited","tom online inc","telonline limited","skype","skype holding","online bvi","tom holding","company","skype online bvi and the company may be referred to individually as party …"]],
+    ["MusclePharm", ["marine mp llc","arnold schwarzenegger","fitness publications inc","musclepharm corporation"], ["marine mp llc","arnold schwarzenegger","fitness publications inc","musclepharm corporation","lender","endorser","fitness","collectively lender endorser and fitness are referred to as the as parties","collectively musclepharm or the company"]],
+    ["PC Quote", ["pc quote inc","ab watley inc"], ["pc quote inc","ab watley inc","pcq","abw"]],
+    ["Neoforma", ["verticalnet inc","neoformacom inc"], ["verticalnet inc","neoformacom inc","verticalnet","neoforma"]],
+    ["Embark.com", ["snap technologies inc","united airlines inc"], ["snap technologies inc","united airlines inc","snap","sponsor"]],
+    ["PaperExchange", ["verticalnet inc","paperexchangecom llc"], ["verticalnet inc","paperexchangecom llc","verticalnet","paperexchange"]]
+  ];
+  P.forEach(function (p) {
+    var ext = p[1], truth = p[2];
+    var o = ["TP"];
+    if (truth.some(function (t) { return ext.indexOf(t) === -1; })) o.push("FN");
+    if (ext.some(function (e) { return truth.indexOf(e) === -1; })) o.push("FP");
+    var note = p[0] === "RAE Systems"
+      ? "Aliases and labelled boilerplate are missed, and 'solutions media inc' vs '... dba spinrecordscom' needs a looser matcher."
+      : "Legal names found; the labels also count defined short names and boilerplate spans.";
+    add("parties", p[0], o, "Definition", ext, truth, null, note);
+  });
+
+  // renewal_term
+  var R = [
+    ["Stamps.com", "... extend such term for additional two (2)-year periods (each a \"Renewal Period\").", "successive 2 years"],
+    ["2TheMart", "This Agreement may be renewed for any number of successive one (1) year terms by mutual written agreement ...", "successive 1 year"],
+    ["RAE Systems", "... shall be automatically renewed for successive periods of one (1) year unless otherwise terminated ...", "successive 1 year"],
+    ["eDiets", "This agreement shall automatically renew for additional successive terms of twelve (12) months each ...", "successive 1 year"],
+    ["mPhase", "mPhase shall have the right to annually renew this agreement for a period of one year ...", "successive 1 year"],
+    ["Rand Worldwide", "The Agreement shall automatically renew for successive one year additional terms ...", "successive 1 year"],
+    ["TOM Online", "This Agreement shall automatically continue following the Initial Term, for an additional period of three (3) years", "3 years"],
+    ["Neoforma", "This Agreement will automatically renew ... on a year to year basis (each, a \"Renewal Term\") ...", "successive 1 year"],
+    ["PaperExchange", "This Agreement will automatically renew ... on a year to year basis (each, a \"Renewal Term\") ...", "successive 1 year"]
+  ];
+  R.forEach(function (r) {
+    add("renewal_term", r[0], ["FP","FN"], "Schema", r[1], r[2], null,
+        "Right clause, returned as a sentence; the label is a normalised duration.");
+  });
+  add("renewal_term", "Integrity Media", ["FP"], "Model", "the parties must mutually agree in writing to extend the term for additional periods of time.", "(empty)", null,
+      "A mutual-agreement extension with no term; the label treats it as no renewal term. Debatable.");
+  add("renewal_term", "Impresse", ["FP"], "Model", "The Term of this Agreement shall begin on the Effective Date and shall end fifteen months therefrom.", "(empty)", null,
+      "Returned the initial term, not a renewal.");
+  add("renewal_term", "MusclePharm", ["FP","FN"], "Label noise", "... shall automatically be renewed for an additional term of three (3) years (the \"First Additional Term\") ...", "7/22/2019; 7/22/2022", null,
+      "The label holds expiry dates, not a duration.");
+
+  // ---------- UI ----------
+  var FIELDS = ["agreement_date","governing_law","cap_on_liability","non_compete","parties","renewal_term"];
+  var state = { field: "all", bucket: "all" };
+  var $ = function (id) { return document.getElementById(id); };
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c]; }); }
+  function inField(f) { return state.field === "all" || f.field === state.field; }
+  function inBucket(f) { return state.bucket === "all" || f.bucket === state.bucket; }
+
+  function chip(label, n, pressed, onClick) {
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "chip"; b.setAttribute("aria-pressed", pressed ? "true" : "false");
+    b.innerHTML = esc(label) + ' <span class="n">' + n + "</span>";
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  function render() {
+    var fRow = $("fx-fields"); fRow.innerHTML = "";
+    fRow.appendChild(chip("All fields", F.length, state.field === "all", function () { state.field = "all"; render(); }));
+    FIELDS.forEach(function (fd) {
+      var n = F.filter(function (f) { return f.field === fd; }).length;
+      fRow.appendChild(chip(fd, n, state.field === fd, function () { state.field = fd; render(); }));
+    });
+
+    var scoped = F.filter(inField);
+    var bRow = $("fx-buckets"); bRow.innerHTML = "";
+    bRow.appendChild(chip("All causes", scoped.length, state.bucket === "all", function () { state.bucket = "all"; render(); }));
+    BUCKETS.forEach(function (b) {
+      var n = scoped.filter(function (f) { return f.bucket === b.id; }).length;
+      var c = chip(b.id, n, state.bucket === b.id, function () { state.bucket = b.id; render(); });
+      c.title = b.hint;
+      bRow.appendChild(c);
+    });
+
+    var bar = $("fx-bar"), legend = $("fx-legend"); bar.innerHTML = ""; legend.innerHTML = "";
+    BUCKETS.forEach(function (b) {
+      var n = scoped.filter(function (f) { return f.bucket === b.id; }).length;
+      var s = document.createElement("span");
+      s.style.width = (scoped.length ? (100 * n / scoped.length) : 0) + "%";
+      s.style.background = b.color;
+      bar.appendChild(s);
+      legend.insertAdjacentHTML("beforeend", '<span><i style="background:' + b.color + '"></i>' + esc(b.id) + " " + n + "</span>");
+    });
+
+    var shown = scoped.filter(inBucket);
+    var model = scoped.filter(function (f) { return f.bucket === "Model"; }).length;
+    $("fx-summary").textContent = shown.length + " of " + F.length + " failing field–contract pairs shown. "
+      + model + " of " + scoped.length + " in this view are genuine model errors.";
+
+    var list = $("fx-list"); list.innerHTML = "";
+    if (!shown.length) { list.innerHTML = '<p class="fx-empty">No failures match this combination.</p>'; return; }
+    shown.forEach(function (f) {
+      var tags = f.o.map(function (o) { return '<span class="fx-tag ' + o + '">' + o + "</span>"; }).join(" ");
+      var body;
+      if (Array.isArray(f.ext)) {
+        var items = f.truth.map(function (t) {
+          return '<span class="' + (f.ext.indexOf(t) !== -1 ? "hit" : "miss") + '">' + esc(t) + "</span>";
+        }).concat(f.ext.filter(function (e) { return f.truth.indexOf(e) === -1; }).map(function (e) {
+          return '<span class="extra">' + esc(e) + "</span>";
+        }));
+        body = '<dl class="fx-kv"><dt>Parties</dt><dd><div class="fx-items">' + items.join("") + "</div></dd>"
+             + '<dt>Key</dt><dd><div class="fx-items"><span class="hit">found</span><span class="miss">missed</span><span class="extra">extra</span></div></dd></dl>';
+      } else {
+        body = '<dl class="fx-kv"><dt>Extracted</dt><dd>' + esc(f.ext) + "</dd><dt>Label</dt><dd>" + esc(f.truth) + "</dd>"
+             + (f.ev ? '<dt>Evidence</dt><dd class="ev">“' + esc(f.ev) + "”</dd>" : "") + "</dl>";
+      }
+      list.insertAdjacentHTML("beforeend",
+        '<article class="fx-card" data-bucket="' + esc(f.bucket) + '">'
+        + '<div class="fx-head"><b>' + esc(f.co) + '</b><span class="fx-field">' + esc(f.field) + "</span>" + tags
+        + '<span class="fx-bucket">' + esc(f.bucket) + "</span></div>"
+        + body
+        + (f.note ? '<p class="fx-note">' + esc(f.note) + "</p>" : "")
+        + "</article>");
+    });
+  }
+  render();
+})();
+</script>
+```

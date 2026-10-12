@@ -1,0 +1,38 @@
+/*-- scss:defaults --*/
+$body-bg: #10141A;
+$body-color: #E3E7ED;
+$primary: #8AA9FF;
+$secondary: #9CA6B4;
+$link-color: #8AA9FF;
+$border-color: #2A313C;
+$navbar-bg: #10141A;
+$navbar-fg: #E3E7ED;
+$footer-bg: #10141A;
+$code-color: #E3E7ED;
+
+$font-family-sans-serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+$headings-font-family: "Archivo", "Helvetica Neue", Arial, sans-serif;
+$font-family-monospace: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+$headings-font-weight: 700;
+$font-size-root: 17px;
+$line-height-base: 1.6;
+
+/*-- scss:rules --*/
+:root {
+  --di-paper: #10141A;
+  --di-surface: #171C24;
+  --di-ink: #E3E7ED;
+  --di-muted: #9CA6B4;
+  --di-rule: #2A313C;
+  --di-accent: #8AA9FF;
+  --di-accent-soft: #1D2844;
+  --di-mark: #5A4B12;
+  --di-mark-ink: #FFF2C2;
+  --di-code: #1B212B;
+  --di-tp: #63C18B;
+  --di-fp: #F07B6D;
+  --di-fn: #E3AE4F;
+  --di-tn: #8F99A8;
+  --di-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --di-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

@@ -3,23 +3,41 @@ project:
 
 website:
   title: "Santosh Kumar Panda"
-  description: "Notes on building and evaluating LLM systems"
+  description: "Building and evaluating LLM systems, from a data-platform engineer's point of view."
   site-url: "https://mediansant.github.io/myblog/"
-  open-graph: true          # preview cards on LinkedIn
+  open-graph: true
+  twitter-card: true
   navbar:
     right:
       - about.qmd
       - icon: github
         href: https://github.com/mediansant
+        aria-label: GitHub
       - icon: linkedin
         href: https://www.linkedin.com/in/santosh015
+        aria-label: LinkedIn
+      - icon: rss
+        href: index.xml
+        aria-label: RSS feed
+  page-footer:
+    left: "© 2026 Santosh Kumar Panda"
+    right: "Built with [Quarto](https://quarto.org)"
 
 format:
   html:
-    theme: cosmo
+    theme:
+      light: [cosmo, theme-light.scss]
+      dark: [darkly, theme-dark.scss]
     css: styles.css
+    include-in-header:
+      text: |
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
     code-copy: true
+    highlight-style: github
     toc: true
+    smooth-scroll: true
 
 execute:
   freeze: auto

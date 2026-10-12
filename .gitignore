@@ -2,3 +2,4 @@
 **/*.quarto_ipynb
 /.quarto/
 /_site/
+.DS_Store
