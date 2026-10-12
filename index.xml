@@ -10,7 +10,7 @@
 <atom:link href="https://mediansant.github.io/myblog/index.xml" rel="self" type="application/rss+xml"/>
 <description>Building and evaluating LLM systems, from a data-platform engineer&#39;s point of view.</description>
 <generator>quarto-1.10.19</generator>
-<lastBuildDate>Tue, 20 Oct 2026 00:00:00 GMT</lastBuildDate>
+<lastBuildDate>Mon, 12 Oct 2026 00:00:00 GMT</lastBuildDate>
 <item>
   <title>My scorer gave a perfect extractor 0 out of 6</title>
   <dc:creator>Santosh Kumar Panda</dc:creator>
@@ -565,7 +565,7 @@ font-style: inherit;">"FN"</span>]</span></code></pre></div></div>
   <category>evals</category>
   <category>document-ai</category>
   <guid>https://mediansant.github.io/myblog/posts/eval-lied/</guid>
-  <pubDate>Tue, 20 Oct 2026 00:00:00 GMT</pubDate>
+  <pubDate>Mon, 12 Oct 2026 00:00:00 GMT</pubDate>
   <media:content url="https://mediansant.github.io/myblog/posts/eval-lied/card.png" medium="image" type="image/png" height="76" width="144"/>
 </item>
 </channel>
