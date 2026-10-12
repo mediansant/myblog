@@ -1,6 +1,6 @@
 ---
 title: "Getting JSON out of contracts is easy. Proving it's right is the project."
-subtitle: "An LLM pipeline for legal contracts, scored field by field against 510 expert-labelled agreements"
+subtitle: "An LLM pipeline for legal contracts, scored field by field against CUAD expert labels"
 author: "Santosh Kumar Panda"
 date: "2026-10-12"
 categories: [LLM, evaluation, structured-output, DuckDB]
@@ -22,7 +22,7 @@ So this project is built around that question rather than around the extraction 
 | Principle | How it shows up |
 |---|---|
 | **Typed output** | Every field lives in a Pydantic schema, and each value carries a verbatim *evidence quote* a reviewer can check against the contract. |
-| **Ground truth** | Results are scored against 510 CUAD contracts, per field, as precision and recall. |
+| **Ground truth** | Results are scored against CUAD expert labels (510 labelled contracts available, 20 scored so far), per field, as precision and recall. |
 | **Reproducible runs** | Each run is stored with its model, prompt hash and schema version, so "did prompt v2 beat v1?" is a SQL query, not a guess. |
 | **Cheap to change** | Extraction is exposed as an API with caching. The eval harness runs offline against saved outputs. |
 
