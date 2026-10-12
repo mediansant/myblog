@@ -1,0 +1,25 @@
+project:
+  type: website
+
+website:
+  title: "Santosh Kumar Panda"
+  description: "Notes on building and evaluating LLM systems"
+  site-url: "https://mediansant.github.io/myblog/"
+  open-graph: true          # preview cards on LinkedIn
+  navbar:
+    right:
+      - about.qmd
+      - icon: github
+        href: https://github.com/mediansant
+      - icon: linkedin
+        href: https://www.linkedin.com/in/santosh015
+
+format:
+  html:
+    theme: cosmo
+    css: styles.css
+    code-copy: true
+    toc: true
+
+execute:
+  freeze: auto

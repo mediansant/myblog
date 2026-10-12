@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 460" font-family="Helvetica, Arial, sans-serif">
+  <rect width="1200" height="460" fill="#f8fafc"/>
+  <text x="40" y="44" font-size="22" font-weight="700" fill="#0f172a">Same answer, different strings</text>
+  <text x="40" y="70" font-size="14" fill="#475569">Raw comparison scores a correct extraction as wrong. Normalising both sides first fixes it.</text>
+  <g font-size="14" font-weight="700" fill="#475569"><text x="40" y="112">FIELD</text><text x="250" y="112">EXTRACTED</text><text x="480" y="112">CUAD LABEL</text><text x="720" y="112">RAW ==</text><text x="830" y="112">NORMALISED</text><text x="1080" y="112">MATCH</text></g>
+  <line x1="40" y1="122" x2="1160" y2="122" stroke="#cbd5e1"/>
+  <g font-size="15" fill="#0f172a">
+    <text x="40" y="162" font-weight="700">cap_on_liability</text><text x="250" y="162" font-family="Menlo, monospace">True</text><text x="480" y="162" font-family="Menlo, monospace">"Yes"</text>
+    <rect x="715" y="142" width="64" height="28" rx="14" fill="#fee2e2"/><text x="747" y="162" text-anchor="middle" fill="#b91c1c" font-weight="700">False</text>
+    <text x="830" y="162" font-family="Menlo, monospace">True = True</text>
+    <rect x="1075" y="142" width="64" height="28" rx="14" fill="#dcfce7"/><text x="1107" y="162" text-anchor="middle" fill="#15803d" font-weight="700">TP</text>
+
+    <text x="40" y="232" font-weight="700">governing_law</text><text x="250" y="232" font-family="Menlo, monospace">"State of Delaware"</text><text x="480" y="232" font-family="Menlo, monospace">"Delaware"</text>
+    <rect x="715" y="212" width="64" height="28" rx="14" fill="#fee2e2"/><text x="747" y="232" text-anchor="middle" fill="#b91c1c" font-weight="700">False</text>
+    <text x="830" y="232" font-family="Menlo, monospace">{delaware} = {delaware}</text>
+    <rect x="1075" y="212" width="64" height="28" rx="14" fill="#dcfce7"/><text x="1107" y="232" text-anchor="middle" fill="#15803d" font-weight="700">TP</text>
+
+    <text x="40" y="302" font-weight="700">governing_law</text><text x="250" y="302" font-family="Menlo, monospace">"England and Wales"</text><text x="480" y="302" font-family="Menlo, monospace">"England, UK; Wales, UK"</text>
+    <rect x="715" y="282" width="64" height="28" rx="14" fill="#fee2e2"/><text x="747" y="302" text-anchor="middle" fill="#b91c1c" font-weight="700">False</text>
+    <text x="830" y="302" font-family="Menlo, monospace">{england, wales} both</text>
+    <rect x="1075" y="282" width="64" height="28" rx="14" fill="#dcfce7"/><text x="1107" y="302" text-anchor="middle" fill="#15803d" font-weight="700">TP</text>
+
+    <text x="40" y="372" font-weight="700">parties</text><text x="250" y="372" font-family="Menlo, monospace">"Chase Bank"</text><text x="480" y="372" font-family="Menlo, monospace">Chase Bank (&quot;Chase&quot;)</text>
+    <rect x="715" y="352" width="64" height="28" rx="14" fill="#fee2e2"/><text x="747" y="372" text-anchor="middle" fill="#b91c1c" font-weight="700">False</text>
+    <text x="830" y="372" font-family="Menlo, monospace">alias dropped, equal</text>
+    <rect x="1075" y="352" width="64" height="28" rx="14" fill="#dcfce7"/><text x="1107" y="372" text-anchor="middle" fill="#15803d" font-weight="700">TP</text>
+  </g>
+  <line x1="40" y1="410" x2="1160" y2="410" stroke="#cbd5e1"/>
+  <text x="40" y="440" font-size="13" fill="#475569">Examples from the project's matchers. The scorer lives in score.py and matchers.py.</text>
+</svg>

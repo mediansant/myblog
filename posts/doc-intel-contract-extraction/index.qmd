@@ -1,0 +1,181 @@
+---
+title: "Getting JSON out of contracts is easy. Proving it's right is the project."
+subtitle: "An LLM pipeline for legal contracts, scored field by field against 510 expert-labelled agreements"
+author: "Santosh Kumar Panda"
+date: "2026-10-12"
+categories: [LLM, evaluation, structured-output, DuckDB]
+description: "PDF to Markdown to typed record to DuckDB, with precision and recall per field. What the numbers said, and why the honest ones are the interesting ones."
+code-copy: true
+toc-depth: 2
+---
+
+::: {.callout-note appearance="simple"}
+**TL;DR.** `doc-intel` turns contract PDFs into typed records (governing law, parties, dates, key clauses) and scores every field against the [CUAD](https://www.atticusprojectai.org/cuad) expert labels. Governing law and agreement date land at about 0.9+. Liability caps and non-competes are *precise but badly under-recalled*, which is exactly the kind of thing you only learn by measuring. Code: [github.com/mediansant/doc-intel](https://github.com/mediansant/doc-intel).
+:::
+
+## The problem is not extraction
+
+Anyone can ask an LLM for JSON. The hard question is the one that comes after: **is the JSON right?**
+
+So this project is built around that question rather than around the extraction itself:
+
+| Principle | How it shows up |
+|---|---|
+| **Typed output** | Every field lives in a Pydantic schema, and each value carries a verbatim *evidence quote* a reviewer can check against the contract. |
+| **Ground truth** | Results are scored against 510 CUAD contracts, per field, as precision and recall. |
+| **Reproducible runs** | Each run is stored with its model, prompt hash and schema version, so "did prompt v2 beat v1?" is a SQL query, not a guess. |
+| **Cheap to change** | Extraction is exposed as an API with caching. The eval harness runs offline against saved outputs. |
+
+## What gets extracted
+
+| Field | Type | Meaning |
+|---|---|---|
+| `governing_law` | text | Jurisdiction as a bare place name, e.g. `Delaware` |
+| `parties` | list | Contracting entities named in the preamble |
+| `agreement_date` | ISO date | Date the contract was entered into |
+| `renewal_term` | free text | Renewal / extension provisions |
+| `cap_on_liability` | bool | Explicit monetary cap on liability |
+| `non_compete` | bool | Non-compete clause present |
+
+## The pipeline
+
+```{mermaid}
+flowchart TD
+    A[("CUAD PDFs +<br/>master_clauses.csv")] -->|"parse.py · Docling"| B["Markdown"]
+    B -->|"extract.py · OpenAI structured output"| C["ContractRecord<br/>values + evidence"]
+    C -->|"backfill.py"| D[("DuckDB<br/>documents · runs · extractions")]
+    D -->|"score.py + matchers.py"| E["Precision / recall<br/>per field + failure list"]
+    A -.->|"ground-truth labels"| E
+```
+
+DuckDB holds the whole story, and it is append-only, so no run ever overwrites another:
+
+| Table | Purpose |
+|---|---|
+| `documents` | One row per PDF, keyed by the SHA-256 of its bytes |
+| `runs` | One row per (model, prompt hash, schema version) |
+| `extractions` | The full record as JSON, plus tokens and latency |
+| `eval_outcomes` | One TP / FP / FN / TN row per field per document per run |
+| `contract_records` | A view that types the JSON into columns for SQL analytics |
+
+## Serving it: `POST /extract`
+
+The same extraction is available as a FastAPI service. Results are cached by PDF hash + model + prompt + schema, so uploading the same file twice only costs one model call.
+
+```{mermaid}
+sequenceDiagram
+    autonumber
+    actor Client
+    participant API as FastAPI
+    participant DB as DuckDB
+    participant Doc as Docling
+    participant LLM as OpenAI
+
+    Client->>API: POST /extract (PDF)
+    API->>API: doc_id = sha256(bytes)
+    API->>DB: already extracted?
+    alt cache hit
+        DB-->>API: stored record
+        API-->>Client: 200 (cached: true)
+    else cache miss
+        API->>Doc: PDF to Markdown
+        API->>LLM: Markdown + schema
+        LLM-->>API: ContractRecord
+        API->>DB: insert document + extraction
+        API-->>Client: 200 (cached: false)
+    end
+```
+
+Failure modes are explicit: **413** over 50 MB, **415** not a PDF, **422** unparseable or no text, **502** model error. A 502 is deliberately *not* cached, so a retry works.
+
+## How scoring works
+
+Comparing an LLM's answer to a human label is where most evals quietly go wrong. Each field goes through three steps:
+
+1. **Normalise both sides.** `State of Delaware` and `Delaware` match. `England and Wales` becomes `{england, wales}`. Party aliases like `("Chase")` are dropped.
+2. **Decide absence with one rule** for every field type (`None`, `False`, empty, `NaN`).
+3. **Classify** as TP / FP / FN / TN. A wrong value counts as *both* a false positive and a false negative.
+
+Two guard rails I'd keep in any eval harness: the scorer asserts that outcomes cover every scored contract, and it **lists skipped files instead of hiding them**. Partial dates like `03/[]/1999` never match an invented full date.
+
+## Results
+
+First run: `gpt-4o-mini` on a 20-contract sample.
+
+```{ojs}
+//| echo: false
+data = [
+  {field: "agreement_date", metric: "Precision", value: 0.90},
+  {field: "agreement_date", metric: "Recall", value: 0.95},
+  {field: "governing_law", metric: "Precision", value: 0.95},
+  {field: "governing_law", metric: "Recall", value: 0.95},
+  {field: "cap_on_liability", metric: "Precision", value: 1.00},
+  {field: "cap_on_liability", metric: "Recall", value: 0.22},
+  {field: "non_compete", metric: "Precision", value: 0.80},
+  {field: "non_compete", metric: "Recall", value: 0.33},
+  {field: "parties (per party)", metric: "Precision", value: 0.98},
+  {field: "parties (per party)", metric: "Recall", value: 0.48},
+  {field: "renewal_term", metric: "Precision", value: 0.08},
+  {field: "renewal_term", metric: "Recall", value: 0.09}
+]
+Plot.plot({
+  marginLeft: 130,
+  x: {domain: [0, 1], grid: true, label: "score"},
+  y: {label: null},
+  fy: {label: null, domain: [...new Set(data.map(d => d.field))]},
+  color: {legend: true, domain: ["Precision", "Recall"], range: ["#1f6feb", "#f0883e"]},
+  marks: [
+    Plot.barX(data, {x: "value", fy: "field", y: "metric", fill: "metric", tip: true}),
+    Plot.text(data, {x: "value", fy: "field", y: "metric", text: d => d.value.toFixed(2), dx: 14, fontSize: 10}),
+    Plot.ruleX([0])
+  ]
+})
+```
+
+| Field | Precision | Recall |
+|---|---|---|
+| agreement_date | 0.90 | 0.95 |
+| governing_law | 0.95 | 0.95 |
+| cap_on_liability | 1.00 | **0.22** |
+| non_compete | 0.80 | **0.33** |
+| parties (per party) | 0.98 | **0.48** |
+| renewal_term | **0.08** | **0.09** |
+
+::: {.callout-warning}
+Twenty contracts is a small sample. Treat these numbers as directional, not as a benchmark.
+:::
+
+## What the numbers actually say
+
+**Easy, well-bounded fields work.** Governing law and agreement date sit at 0.9+ on both axes. They have one canonical answer and a predictable place in the document.
+
+**The boolean fields are precise but timid.** A precision of 1.00 with recall of 0.22 on liability caps means: when the model says "yes", it's right, but it says "yes" far too rarely. That is my own prompt's fault. It tells the model to answer `False` unless a clause is explicit, so it misses most caps and non-competes. Nothing in a single accuracy number would have shown this. Splitting into precision and recall did.
+
+**Parties are a labelling mismatch as much as a model problem.** CUAD labels aliases and roles as separate spans, while the model returns one name per party, so recall tops out near 0.48.
+
+**`renewal_term` fails because it is free text.** Matching loose prose to loose prose scores poorly whichever side is wrong. The fix is a better schema, not a better model.
+
+## What's next
+
+- **`run_v2`**: relax the boolean prompt and re-score. Because runs are keyed by prompt hash, the comparison is one SQL query.
+- **Structured renewal terms**: auto-renews, term length, notice period.
+- **Chunking** for very long contracts, which are currently sent whole.
+- **Model comparison**: the harness already keys runs by model, so swapping one in is cheap.
+
+## Try it
+
+```bash
+uv sync
+echo "OPENAI_API_KEY=sk-..." > .env
+
+uv run python -m doc_intel.run_extraction     # extract the 20-contract sample
+uv run python -m doc_intel.backfill run_v1    # load into DuckDB
+uv run python -m doc_intel.score run_v1       # precision / recall + failures
+uv run pytest evals                           # 31 offline tests, no API cost
+```
+
+The tests cover the API with Docling, the model and DuckDB mocked (success, cache hit, 413/415/422/502) and the matchers using values observed in `run_v1`.
+
+---
+
+*Source and full README: [mediansant/doc-intel](https://github.com/mediansant/doc-intel).*

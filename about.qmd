@@ -1,0 +1,16 @@
+---
+title: "About"
+image: profile.jpg
+about:
+  template: jolla
+  links:
+    - icon: linkedin
+      text: LinkedIn
+      href: https://www.linkedin.com/in/santosh015
+    - icon: github
+      text: Github
+      href: https://github.com/mediansant
+
+---
+
+I build and evaluate LLM systems. This blog collects write-ups of projects, with an emphasis on measuring whether the output is actually right.
